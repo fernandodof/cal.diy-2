@@ -5,11 +5,12 @@ import { useBookerTime } from "@calcom/features/bookings/Booker/hooks/useBookerT
 import type { UseBookingFormReturnType } from "@calcom/features/bookings/Booker/hooks/useBookingForm";
 import { formatEventFromTime } from "@calcom/features/bookings/Booker/utils/dates";
 import type { BookerEvent } from "@calcom/features/bookings/types";
+import { getBusinessHoursRange, isOutsideBusinessHours } from "@calcom/lib/businessHours";
 import ServerTrans from "@calcom/lib/components/ServerTrans";
 import { APP_NAME, WEBSITE_PRIVACY_POLICY_URL, WEBSITE_TERMS_URL } from "@calcom/lib/constants";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
-import type { TimeFormat } from "@calcom/lib/timeFormat";
+import { TimeFormat } from "@calcom/lib/timeFormat";
 import { Alert } from "@calcom/ui/components/alert";
 import { Button } from "@calcom/ui/components/button";
 import { EmptyScreen } from "@calcom/ui/components/empty-screen";
@@ -64,7 +65,10 @@ export const BookEventForm = ({
   eventQuery: {
     isError: boolean;
     isPending: boolean;
-    data?: Pick<BookerEvent, "price" | "currency" | "metadata" | "bookingFields" | "locations"> | null;
+    data?: Pick<
+      BookerEvent,
+      "price" | "currency" | "metadata" | "bookingFields" | "locations" | "schedule"
+    > | null;
   };
 }) => {
   const eventType = eventQuery.data;
@@ -88,6 +92,25 @@ export const BookEventForm = ({
     if (!eventType) return "USD";
     return getPaymentAppData(eventType)?.currency || "USD";
   }, [eventType]);
+
+  // Business hours are evaluated in the organizer's timezone, so a booker in another
+  // timezone is warned when they are about to book outside of the organizer's working day.
+  const organizerTimeZone = eventType?.schedule?.timeZone || timezone;
+  const outsideBusinessHours = useMemo(() => {
+    if (!timeslot) return null;
+    if (!isOutsideBusinessHours(timeslot, organizerTimeZone)) return null;
+
+    const { date, time } = formatEventFromTime({
+      date: timeslot,
+      timeFormat,
+      timeZone: organizerTimeZone,
+      language: i18n.language,
+    });
+    return {
+      formattedTime: `${date}, ${time}`,
+      ...getBusinessHoursRange(timeFormat === TimeFormat.TWELVE_HOUR ? 12 : 24),
+    };
+  }, [timeslot, organizerTimeZone, timeFormat, i18n.language]);
 
   if (eventQuery.isError) return <Alert severity="warning" message={t("error_booking_event")} />;
   if (eventQuery.isPending || !eventQuery.data) return <FormSkeleton />;
@@ -123,6 +146,21 @@ export const BookEventForm = ({
         form={bookingForm}
         handleSubmit={onSubmit}
         noValidate>
+        {outsideBusinessHours && (
+          <div data-testid="outside-business-hours-warning">
+            <Alert
+              className="mb-4"
+              severity="warning"
+              title={t("outside_business_hours_warning_title")}
+              message={t("outside_business_hours_warning_description", {
+                time: outsideBusinessHours.formattedTime,
+                start: outsideBusinessHours.start,
+                end: outsideBusinessHours.end,
+                timeZone: organizerTimeZone,
+              })}
+            />
+          </div>
+        )}
         <BookingFields
           isDynamicGroupBooking={!!(username && username.indexOf("+") > -1)}
           fields={eventType.bookingFields}

@@ -8,6 +8,7 @@ import { getSuccessPageLocationMessage, guessEventLocationType } from "@calcom/a
 import dayjs from "@calcom/dayjs";
 // TODO: Use browser locale, implement Intl in Dayjs maybe?
 import "@calcom/dayjs/locales";
+import { getBusinessHoursRange, isOutsideBusinessHours } from "@calcom/lib/businessHours";
 import { formatTime } from "@calcom/lib/dayjs";
 import { useCopy } from "@calcom/lib/hooks/useCopy";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
@@ -563,9 +564,26 @@ const BookingItemBadges = ({
   onAssignmentReasonClick?: () => void;
 }) => {
   const { t } = useLocale();
+  const businessHours = getBusinessHoursRange(userTimeFormat === 12 ? 12 : 24);
 
   return (
     <div className="hidden h-9 flex-row items-center pb-4 pl-6 sm:flex">
+      {isOutsideBusinessHours(booking.startTime, userTimeZone) && (
+        <Tooltip
+          content={t("outside_business_hours_tooltip", {
+            start: businessHours.start,
+            end: businessHours.end,
+            timeZone: userTimeZone,
+          })}>
+          <Badge
+            className="ltr:mr-2 rtl:ml-2"
+            variant="orange"
+            startIcon="clock"
+            data-testid="outside_business_hours_badge">
+            {t("outside_business_hours")}
+          </Badge>
+        </Tooltip>
+      )}
       {isPending && (
         <Badge className="ltr:mr-2 rtl:ml-2" variant="orange">
           {t("unconfirmed")}

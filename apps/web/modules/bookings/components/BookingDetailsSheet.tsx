@@ -19,6 +19,7 @@ import { trpc } from "@calcom/trpc/react";
 import type { RecurringEvent } from "@calcom/types/Calendar";
 import classNames from "@calcom/ui/classNames";
 import { Avatar } from "@calcom/ui/components/avatar";
+import { getBusinessHoursRange, isOutsideBusinessHours } from "@calcom/lib/businessHours";
 import { Badge } from "@calcom/ui/components/badge";
 import { Button } from "@calcom/ui/components/button";
 import { SegmentedControl } from "@calcom/ui/components/segmented-control";
@@ -294,6 +295,8 @@ function BookingDetailsSheetInner({
                 reasonTitle={reasonTitle}
                 booking={booking}
                 recurringInfo={recurringInfo}
+                userTimeZone={userTimeZone}
+                userTimeFormat={userTimeFormat}
               />
             </div>
             <div className="flex gap-2">
@@ -1004,20 +1007,37 @@ function BookingHeaderBadges({
   reasonTitle,
   booking,
   recurringInfo,
+  userTimeZone,
+  userTimeFormat,
 }: {
   statusBadge: { variant: "red" | "green" | "orange" | "gray"; label: string };
   reasonTitle: string | undefined;
   booking: BookingOutput;
   recurringInfo: { count: number; recurringEvent: RecurringEvent } | null;
+  userTimeZone?: string;
+  userTimeFormat?: number | null;
 }) {
   const { t } = useLocale();
   const payment = booking.payment?.[0];
+  const businessHours = getBusinessHoursRange(userTimeFormat === 12 ? 12 : 24);
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       <Badge variant={statusBadge.variant} className="capitalize">
         {statusBadge.label}
       </Badge>
+      {isOutsideBusinessHours(booking.startTime, userTimeZone) && (
+        <Tooltip
+          content={t("outside_business_hours_tooltip", {
+            start: businessHours.start,
+            end: businessHours.end,
+            timeZone: userTimeZone,
+          })}>
+          <Badge variant="orange" startIcon="clock" data-testid="outside_business_hours_badge">
+            {t("outside_business_hours")}
+          </Badge>
+        </Tooltip>
+      )}
       {reasonTitle && (
         <Badge variant="gray" className="capitalize">
           {reasonTitle}

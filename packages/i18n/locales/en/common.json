@@ -4771,5 +4771,9 @@
   "user_updated_successfully": "User updated successfully.",
   "error_updating_user": "There was an error updating this user.",
   "please_reschedule": "Please reschedule.",
+  "outside_business_hours": "Outside business hours",
+  "outside_business_hours_warning_title": "This time is outside business hours",
+  "outside_business_hours_warning_description": "{{time}} falls outside the usual business hours ({{start}} - {{end}}, Monday to Friday) in {{timeZone}}. You can still book it, but a response may take longer.",
+  "outside_business_hours_tooltip": "Business hours are {{start}} - {{end}}, Monday to Friday ({{timeZone}}).",
   "ADD_NEW_STRINGS_ABOVE_THIS_LINE_TO_PREVENT_MERGE_CONFLICTS": "↑↑↑↑↑↑↑↑↑↑↑↑↑ Add your new strings above here ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑"
 }
