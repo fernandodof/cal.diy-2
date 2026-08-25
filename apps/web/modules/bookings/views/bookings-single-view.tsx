@@ -22,6 +22,7 @@ import {
   useIsEmbed,
 } from "@calcom/embed-core/embed-iframe";
 import { Price } from "@calcom/features/bookings/components/event-meta/Price";
+import { getBookingSummaryText } from "@calcom/features/bookings/lib/getBookingSummaryText";
 import { getCalendarLinks, CalendarLinkType } from "@calcom/features/bookings/lib/getCalendarLinks";
 import { RATING_OPTIONS, validateRating } from "@calcom/features/bookings/lib/rating";
 import { isWithinMinimumRescheduleNotice as isWithinMinimumRescheduleNoticeUtil } from "@calcom/features/bookings/lib/reschedule/isWithinMinimumRescheduleNotice";
@@ -31,6 +32,7 @@ import { shouldShowFieldInCustomResponses } from "@calcom/lib/bookings/SystemFie
 import { APP_NAME } from "@calcom/lib/constants";
 import { formatToLocalizedDate, formatToLocalizedTime, formatToLocalizedTimezone } from "@calcom/lib/dayjs";
 import useGetBrandingColours from "@calcom/lib/getBrandColours";
+import { useCopy } from "@calcom/lib/hooks/useCopy";
 import { useCompatSearchParams } from "@calcom/lib/hooks/useCompatSearchParams";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { useRouterQuery } from "@calcom/lib/hooks/useRouterQuery";
@@ -106,7 +108,10 @@ const useBrandColors = ({
 };
 
 export default function Success(props: PageProps) {
-  const { t } = useLocale();
+  const {
+    t,
+    i18n: { language },
+  } = useLocale();
   const router = useRouter();
   const routerQuery = useRouterQuery();
   const pathname = usePathname();
@@ -194,6 +199,8 @@ export default function Success(props: PageProps) {
     (link) => link.id === CalendarLinkType.MICROSOFT_OUTLOOK
   )?.link;
   const googleCalendarLink = calendarLinks.find((link) => link.id === CalendarLinkType.GOOGLE_CALENDAR)?.link;
+
+  const { copyToClipboard } = useCopy();
 
   const isBackgroundTransparent = useIsBackgroundTransparent();
   const isEmbed = useIsEmbed();
@@ -377,6 +384,25 @@ export default function Success(props: PageProps) {
   const rescheduleProviderName = guessEventLocationType(rescheduleLocation)?.label;
   const isBookingInPast = new Date(bookingInfo.endTime) < new Date();
   const isReschedulable = !isCancelled;
+
+  const handleCopySummary = () => {
+    copyToClipboard(
+      getBookingSummaryText({
+        title: isRoundRobin && typeof bookingInfo.title === "string" ? bookingInfo.title : eventName,
+        date,
+        duration: calculatedDuration ?? 0,
+        timeZone: tz,
+        location: !isCancelled ? locationToDisplay : null,
+        language,
+        is24h,
+        t,
+      }),
+      {
+        onSuccess: () => showToast(t("summary_copied"), "success"),
+        onFailure: () => showToast(t("summary_copy_failed"), "error"),
+      }
+    );
+  };
 
   const bookingCancelledEventProps = {
     booking: bookingInfo,
@@ -1030,6 +1056,16 @@ export default function Success(props: PageProps) {
                               </Link>
                             )}
                           </div>
+                        </div>
+                        <div className="flex justify-center pt-4">
+                          <Button
+                            type="button"
+                            color="secondary"
+                            data-testid="copy-summary-button"
+                            StartIcon="copy"
+                            onClick={handleCopySummary}>
+                            {t("copy_summary")}
+                          </Button>
                         </div>
                       </>
                     )}
