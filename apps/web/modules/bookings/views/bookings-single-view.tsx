@@ -67,6 +67,7 @@ import CancelBooking from "@calcom/web/components/booking/CancelBooking";
 import EventReservationSchema from "@calcom/web/components/schemas/EventReservationSchema";
 import { timeZone } from "@calcom/web/lib/clock";
 
+import { useCopyBookingSummary } from "../hooks/useCopyBookingSummary";
 import { usePaymentStatus } from "../hooks/usePaymentStatus";
 import type { PageProps } from "./bookings-single-view.getServerSideProps";
 
@@ -106,7 +107,10 @@ const useBrandColors = ({
 };
 
 export default function Success(props: PageProps) {
-  const { t } = useLocale();
+  const {
+    t,
+    i18n: { language },
+  } = useLocale();
   const router = useRouter();
   const routerQuery = useRouterQuery();
   const pathname = usePathname();
@@ -372,6 +376,22 @@ export default function Success(props: PageProps) {
     t,
     bookingInfo.status
   );
+
+  // Mirrors the title rendered in the "What" row below.
+  const displayedTitle =
+    isRoundRobin && typeof bookingInfo.title === "string" ? bookingInfo.title : eventName;
+
+  const { isCopied, copySummary } = useCopyBookingSummary({
+    title: displayedTitle,
+    startTime: date,
+    duration: calculatedDuration,
+    timeZone: tz,
+    location: isCancelled ? null : locationToDisplay,
+    locale: language,
+    is24h,
+    recurringDates: allRemainingBookings ? props.recurringBookings : null,
+    t,
+  });
 
   const providerName = guessEventLocationType(location)?.label;
   const rescheduleProviderName = guessEventLocationType(rescheduleLocation)?.label;
@@ -1030,6 +1050,16 @@ export default function Success(props: PageProps) {
                               </Link>
                             )}
                           </div>
+                        </div>
+                        <div className="text-default align-center flex flex-row justify-center pt-4">
+                          <Button
+                            type="button"
+                            color="minimal"
+                            data-testid="copy-summary-button"
+                            StartIcon={isCopied ? "check" : "copy"}
+                            onClick={copySummary}>
+                            {isCopied ? t("copied") : t("copy_summary")}
+                          </Button>
                         </div>
                       </>
                     )}
