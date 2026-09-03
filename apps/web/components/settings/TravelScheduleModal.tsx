@@ -1,9 +1,12 @@
 import dayjs from "@calcom/dayjs";
 import { useTimePreferences } from "@calcom/features/bookings/lib/timePreferences";
-import { TimezoneSelect } from "@calcom/web/modules/timezone/components/TimezoneSelect";
 import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { trpc } from "@calcom/trpc/react";
+import classNames from "@calcom/ui/classNames";
 import { DatePicker, SettingsToggle } from "@calcom/ui/components/form";
 import { DatePickerWithRange as DateRangePicker } from "@calcom/ui/components/form/date-range-picker/DateRangePicker";
+import { TimezoneSelect } from "@calcom/web/modules/timezone/components/TimezoneSelect";
+import { Alert, AlertDescription, AlertTitle } from "@coss/ui/components/alert";
 import { Button } from "@coss/ui/components/button";
 import {
   Dialog,
@@ -77,6 +80,23 @@ const TravelScheduleModal = ({
     setIsNoEndDate(false);
     setIsDateRangeOpen(false);
   };
+
+  // Warn the host early — while they are still picking dates — that confirmed
+  // bookings during the trip would land outside their working hours. Advisory
+  // only: nothing here moves or cancels a booking.
+  const { data: outsideWorkingHours } = trpc.viewer.travelSchedules.getBookingsOutsideWorkingHours.useQuery(
+    {
+      startDate,
+      endDate: isNoEndDate ? null : endDate,
+      timeZone: selectedTimeZone,
+    },
+    {
+      enabled: open && Boolean(startDate) && (isNoEndDate || Boolean(endDate)),
+      trpc: { context: { skipBatch: true } },
+    }
+  );
+
+  const outsideWorkingHoursCount = outsideWorkingHours?.bookings.length ?? 0;
 
   const createNewSchedule = () => {
     const newSchedule = {
@@ -169,8 +189,20 @@ const TravelScheduleModal = ({
               menuPortalTarget={typeof document === "undefined" ? undefined : document.body}
               menuPlacement={isMobile ? "top" : "auto"}
               styles={{ menuPortal: (base) => Object.assign({}, base, { zIndex: 9999 }) }}
-              className="mb-11 mt-2 w-full rounded-md text-sm"
+              className={classNames("mt-2 w-full rounded-md text-sm", !outsideWorkingHoursCount && "mb-11")}
             />
+            {outsideWorkingHoursCount > 0 && (
+              <Alert variant="warning" className="mt-3 mb-11">
+                <AlertTitle>{t("travel_schedule_outside_working_hours_title")}</AlertTitle>
+                <AlertDescription>
+                  {t("travel_schedule_outside_working_hours_description", {
+                    count: outsideWorkingHoursCount,
+                    timeZone: selectedTimeZone,
+                    interpolation: { escapeValue: false },
+                  })}
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
         </DialogPanel>
         <DialogFooter>
