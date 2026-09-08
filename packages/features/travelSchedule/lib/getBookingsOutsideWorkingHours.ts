@@ -55,12 +55,23 @@ export function getBookingsOutsideWorkingHours({
 
   if (!bookingsDuringTrip.length) return [];
 
-  // Only look as far as the bookings we actually have to check.
-  const dateFrom = tripStart;
-  const dateTo = bookingsDuringTrip.reduce(
+  // Look as far as the bookings we actually have to check, but widen to whole
+  // days in the destination timezone. buildDateRanges clamps each day's window
+  // to dateFrom/dateTo, so a window ending exactly at a booking's end instant
+  // would truncate that day's working hours to the booking itself and report it
+  // as outside them. Crossing the dateline makes this routine: a booking can
+  // land on the day after the trip's last local day.
+  const firstBookingStart = bookingsDuringTrip.reduce(
+    (earliest, booking) => (dayjs(booking.startTime).isBefore(earliest) ? dayjs(booking.startTime) : earliest),
+    dayjs(bookingsDuringTrip[0].startTime)
+  );
+  const latestBookingEnd = bookingsDuringTrip.reduce(
     (latest, booking) => (dayjs(booking.endTime).isAfter(latest) ? dayjs(booking.endTime) : latest),
     tripStart
   );
+
+  const dateFrom = dayjs.min(tripStart, firstBookingStart.tz(travelSchedule.timeZone).startOf("day"));
+  const dateTo = latestBookingEnd.tz(travelSchedule.timeZone).endOf("day");
 
   const toDayjsTravelSchedule = (schedule: TravelScheduleInput) => ({
     startDate: dayjs(schedule.startDate).startOf("day"),

@@ -112,4 +112,97 @@ describe("getBookingsOutsideWorkingHours", () => {
 
     expect(result).toHaveLength(1);
   });
+  // Regression: the range window used to end exactly at the latest booking's
+  // end instant. buildDateRanges clamps each day to that window, so the final
+  // day's working hours collapsed onto the booking itself and it was always
+  // reported outside them. Crossing the dateline hits this routinely, because
+  // the booking lands on the day after the trip's last local day.
+  describe("bookings near the edge of the range window", () => {
+    // Every day 09:00-23:00, matching the seeded "Working Hours" schedule.
+    const allWeekLateEvening = [
+      {
+        days: [0, 1, 2, 3, 4, 5, 6],
+        startTime: new Date(Date.UTC(2023, 5, 12, 9, 0)),
+        endTime: new Date(Date.UTC(2023, 5, 12, 23, 0)),
+      },
+    ];
+
+    // 2026-09-11T01:00Z is 10:00 in Tokyo — inside 09:00-23:00 there.
+    const acrossDateline = {
+      bookings: [booking("2026-09-11T01:00:00.000Z", "2026-09-11T01:30:00.000Z")],
+      availability: allWeekLateEvening,
+      timeZone: "America/Fortaleza",
+      travelSchedule: {
+        startDate: new Date("2026-09-10T00:00:00.000Z"),
+        endDate: new Date("2026-09-11T00:00:00.000Z"),
+        timeZone: "Asia/Tokyo",
+      },
+    };
+
+    it("does not flag a booking that is inside working hours in a timezone east of UTC", () => {
+      expect(getBookingsOutsideWorkingHours(acrossDateline)).toEqual([]);
+    });
+
+    it("still flags the same booking when the destination puts it outside working hours", () => {
+      // The same instant is 02:00 in London — outside 09:00-23:00.
+      const result = getBookingsOutsideWorkingHours({
+        ...acrossDateline,
+        travelSchedule: { ...acrossDateline.travelSchedule, timeZone: "Europe/London" },
+      });
+
+      expect(result).toHaveLength(1);
+    });
+
+    it("does not flag a booking that ends exactly at the end of the working day", () => {
+      // 22:00-23:00 in Lisbon, working day ends 23:00.
+      const result = getBookingsOutsideWorkingHours({
+        bookings: [booking("2026-09-16T21:00:00.000Z", "2026-09-16T22:00:00.000Z")],
+        availability: allWeekLateEvening,
+        timeZone: "Europe/Lisbon",
+        travelSchedule: {
+          startDate: new Date("2026-09-14T00:00:00.000Z"),
+          endDate: new Date("2026-09-20T00:00:00.000Z"),
+          timeZone: "Europe/Lisbon",
+        },
+      });
+
+      expect(result).toEqual([]);
+    });
+
+    it("does not flag a booking that starts exactly at the start of the trip's first day", () => {
+      // 09:00-10:00 in Lisbon on the trip's opening day.
+      const result = getBookingsOutsideWorkingHours({
+        bookings: [booking("2026-09-14T08:00:00.000Z", "2026-09-14T09:00:00.000Z")],
+        availability: allWeekLateEvening,
+        timeZone: "Europe/Lisbon",
+        travelSchedule: {
+          startDate: new Date("2026-09-14T00:00:00.000Z"),
+          endDate: new Date("2026-09-20T00:00:00.000Z"),
+          timeZone: "Europe/Lisbon",
+        },
+      });
+
+      expect(result).toEqual([]);
+    });
+
+    it("evaluates each booking independently when several share a trip", () => {
+      const result = getBookingsOutsideWorkingHours({
+        bookings: [
+          // 10:00 Tokyo - inside hours.
+          booking("2026-09-11T01:00:00.000Z", "2026-09-11T01:30:00.000Z", "inside"),
+          // 03:00 Tokyo - outside hours.
+          booking("2026-09-10T18:00:00.000Z", "2026-09-10T18:30:00.000Z", "outside"),
+        ],
+        availability: allWeekLateEvening,
+        timeZone: "America/Fortaleza",
+        travelSchedule: {
+          startDate: new Date("2026-09-10T00:00:00.000Z"),
+          endDate: new Date("2026-09-11T00:00:00.000Z"),
+          timeZone: "Asia/Tokyo",
+        },
+      });
+
+      expect(result.map((entry) => entry.uid)).toEqual(["outside"]);
+    });
+  });
 });
