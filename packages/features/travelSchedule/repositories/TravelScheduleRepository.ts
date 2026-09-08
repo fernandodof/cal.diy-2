@@ -1,3 +1,4 @@
+import dayjs from "@calcom/dayjs";
 import { prisma } from "@calcom/prisma";
 import { BookingStatus } from "@calcom/prisma/enums";
 
@@ -44,8 +45,8 @@ export class TravelScheduleRepository {
           userId,
           status: BookingStatus.ACCEPTED,
           startTime: {
-            gte: dateFrom,
-            ...(dateTo ? { lte: dateTo } : {}),
+            gte: dayjs(dateFrom).startOf("day").toDate(),
+            ...(dateTo ? { lte: dayjs(dateTo).endOf("day").toDate() } : {}),
           },
         },
         select: {
