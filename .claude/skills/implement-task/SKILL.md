@@ -1,91 +1,70 @@
 ---
 name: implement-task
-description: Take a task description all the way to an open pull request in this Cal.com fork — ground it in the codebase, slice it into tracer bullets, implement, verify, and open the PR. Use when the user describes a feature or bug to build, says "implement this", "build this and open a PR", or hands over a ticket, issue, or spec to ship.
+description: Take a task description all the way to an open pull request in this Cal.com fork through three handoff phases — Research, Plan, Implement. Use when the user describes a feature or bug to build, says "implement this", "build this and open a PR", or hands over a ticket, issue, or spec to ship.
 ---
 
 # Implement Task
 
-Task description in, reviewed PR out. Work through the phases in order. Two
-checkpoints are mandatory: **after the slice plan** and **before opening the PR**.
-Everything between them runs without stopping.
+Task description in, open pull request out, through three phases. Each phase
+writes a file; the next phase reads that file and nothing else from the phase
+before it. If the handoff file cannot be written, the next phase does not start.
 
-## Phase 1 — Ground the task
+The phase artifacts live in `specs/<feature-slug>/`, the structure this repo
+already uses (see `SPEC-WORKFLOW.md` and `specs/README.md`). They are committed
+with the work, so a later session — or a reviewer — can pick the task up cold.
 
-Never plan from the task description alone. Establish, in this order:
+| Phase | Reads | Writes | Gate |
+|---|---|---|---|
+| 1 Research | the task, the codebase | `specs/<slug>/design.md` | user confirms the findings |
+| 2 Plan | `design.md` | `specs/<slug>/implementation.md` | user approves the slices |
+| 3 Implement | `implementation.md` | code, commits, the PR | user approves the base branch |
 
-1. **Read `CLAUDE.md`** for the area being touched. The fork records product
-   decisions the schema cannot express. If the task contradicts one — e.g. asking
-   to auto-cancel or auto-reschedule a booking, which decision #2 forbids — **stop
-   and say so before writing code**. Quote the decision and ask whether to proceed
-   anyway or change the approach.
-2. **Locate the code** using the checklist in
-   [GROUNDING.md](GROUNDING.md). Name the concrete files you expect to touch.
-3. **Find the nearest existing test** for that area and read it. It defines the
-   conventions your new tests must match — don't invent a testing style.
+Run `/implement-task` with no phase named and it starts at Phase 1. Resuming
+work? Read `specs/<slug>/implementation.md` first and re-enter at the phase its
+`## Status` line implies.
 
-Restate the task in one or two sentences, listing the files you'll touch. If the
-task is ambiguous in a way that changes what gets built, ask now.
+## Phase 1 — Research
 
-## Phase 2 — Slice into tracer bullets
+Never plan from the task description alone. Follow
+[phases/1-research.md](phases/1-research.md) to locate the real code, then write
+`specs/<slug>/design.md` from `specs/_templates/design.md`.
 
-Break the work into **vertical slices**. A tracer bullet cuts through every layer
-end-to-end — schema, service, tRPC handler, UI, tests — narrow but complete.
+Create the folder with the repo's own command:
 
-<slice-rules>
-- Each slice is demoable or verifiable on its own.
-- No horizontal slices: "add the DB column" is not a slice; "one booking shows
-  the warning, end to end" is.
-- Prefer many thin slices over few thick ones.
-- Order them so slice 1 is the thinnest thing that proves the path works.
-</slice-rules>
+```bash
+cp -r specs/_templates specs/<feature-slug>
+```
 
-**CHECKPOINT — present the plan and wait for approval.** Show a numbered list:
-title, what it proves end-to-end, files touched, and what verifies it. Ask
-whether granularity and ordering are right. Do not write code until the user
-approves.
+**GATE.** Show the design's Overview, the file list, and any open question. The
+user confirms or corrects before planning. Do not slice yet.
+
+## Phase 2 — Plan
+
+Read `specs/<slug>/design.md` — the design is now the source of truth, not the
+original request. Follow [phases/2-plan.md](phases/2-plan.md) to break it into
+tracer bullets and write them into `specs/<slug>/implementation.md`.
+
+**GATE.** Present the numbered slices. Ask whether the granularity and ordering
+are right. Do not write code until the user approves.
 
 ## Phase 3 — Implement
 
-Branch off `main` first: `git checkout -b feat/<short-kebab-description>`
-(`fix/…` for bugfixes).
+Read `specs/<slug>/implementation.md` and work its slices in order. Follow
+[phases/3-implement.md](phases/3-implement.md) for the per-slice loop,
+verification commands, and the pull request.
 
-Then, **for each slice in order**:
-
-1. Write the test first where there's a clean seam — a pure function, a service
-   method, a resolver. Watch it fail for the right reason.
-2. Implement the thinnest thing that makes it pass.
-3. Verify the slice (Phase 4 commands, scoped to what changed).
-4. **Commit the slice** as one conventional commit:
-   `feat(travel-schedule): warn host about bookings outside working hours`
-   Scope matches the feature area. See [PR.md](PR.md) for the commit trailers.
-
-One commit per slice — the PR should read as the slice progression.
-
-Match the surrounding code: its naming, its comment density, its idioms. This is
-a Cal.com fork; upstream conventions win over personal preference.
-
-## Phase 4 — Verify
-
-Both must pass before the PR. Scope them — the full suite is slow in this monorepo.
-
-```bash
-# Tests for what you touched
-yarn test <path/to/file.test.ts>
-
-# Type-check the affected workspace
-yarn turbo run type-check --filter=@calcom/<package>
-```
-
-If either fails, fix it. Never open a PR on red, and never describe a failing
-check as passing — report the actual output.
-
-## Phase 5 — Open the PR
-
-**CHECKPOINT — before pushing.** Show the diff summary (`git diff main --stat`),
-the drafted PR title and body, and **ask which base branch to target**. This fork's
-`origin` is a personal fork of cal.com; never assume upstream. Wait for the answer.
-
-Then push and create the PR. Body template, trailers, and the `gh` invocation are
-in [PR.md](PR.md).
+**GATE.** Before pushing, show `git diff main --stat`, the drafted PR body, and
+**ask which base branch to target** — `origin` here is a personal fork of
+cal.com, so both this fork's `main` and upstream are plausible and guessing
+sends the work to the wrong place.
 
 Report the PR URL when done.
+
+## Rules that hold across all three phases
+
+- **Anything a phase asserts about the codebase must be verified in it.** Cite
+  the file you read. A path you did not open does not go in a handoff file.
+- **Report check results honestly.** Never describe a failing or skipped check
+  as passing.
+- **Match the surrounding code** — its naming, comment density, and idioms.
+  This is a Cal.com fork; upstream conventions beat personal preference.
