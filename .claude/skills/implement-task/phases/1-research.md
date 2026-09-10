@@ -24,6 +24,19 @@ Otherwise create the folder from the repo's template:
 cp -r specs/_templates specs/<feature-slug>
 ```
 
+That copies seven placeholder files. Two of them are yours to fill in:
+`design.md` below, and `CLAUDE.md` — which `SPEC-WORKFLOW.md` makes step 4 of
+creating a spec, and which is the first file a later session reads. Fill
+`CLAUDE.md` in at the end of this phase, once the design has settled; the
+template's sections (Project Context, Before Starting Work, Code Patterns,
+Don't) are the ones to keep, and
+`specs/cancellation-reason-requirement/CLAUDE.md` shows them filled in for a
+real feature.
+
+`prompts.md` and `docs/` arrive as unfilled placeholders too. Leave them if you
+will use them; delete them from your spec folder if you will not, rather than
+committing `{Feature Name}` boilerplate.
+
 ## 2. Follow the user-visible surface inward
 
 Start from what the user sees and walk toward the data.
@@ -98,6 +111,9 @@ Two additions make the file a usable handoff:
 - Under Technical Design, list each file you expect to touch with a real path,
   the way `specs/cancellation-reason-requirement/design.md` does.
 - Under Out of Scope, name any constraint from step 5 that shaped the design.
+
+Then write `specs/<slug>/CLAUDE.md` as described in step 1, now that the design
+has settled enough to say what the feature's patterns and non-goals are.
 
 ## Gate
 

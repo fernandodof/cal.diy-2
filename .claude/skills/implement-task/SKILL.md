@@ -27,13 +27,9 @@ work? Read `specs/<slug>/implementation.md` first and re-enter at the phase its
 
 Never plan from the task description alone. Follow
 [phases/1-research.md](phases/1-research.md) to locate the real code, then write
-`specs/<slug>/design.md` from `specs/_templates/design.md`.
-
-Create the folder with the repo's own command:
-
-```bash
-cp -r specs/_templates specs/<feature-slug>
-```
+`specs/<slug>/design.md` from `specs/_templates/design.md`. The phase file
+creates the spec folder — it checks for an existing one first, so do not copy
+the template from here.
 
 **GATE.** Show the design's Overview, the file list, and any open question. The
 user confirms or corrects before planning. Do not slice yet.
