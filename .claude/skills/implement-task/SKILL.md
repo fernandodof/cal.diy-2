@@ -16,8 +16,8 @@ with the work, so a later session — or a reviewer — can pick the task up col
 | Phase | Reads | Writes | Gate |
 |---|---|---|---|
 | 1 Research | the task, the codebase | `specs/<slug>/design.md` | user confirms the findings |
-| 2 Plan | `design.md` | `specs/<slug>/implementation.md` | user approves the slices |
-| 3 Implement | `implementation.md` | code, commits, the PR | user approves the base branch |
+| 2 Plan | `design.md` | `specs/<slug>/implementation.md` | user approves the slices and names the base branch |
+| 3 Implement | `implementation.md` | code, commits, the PR | user confirms the diff and PR body |
 
 Run `/implement-task` with no phase named and it starts at Phase 1. Resuming
 work? Read `specs/<slug>/implementation.md` first and re-enter at the phase its
@@ -41,7 +41,9 @@ original request. Follow [phases/2-plan.md](phases/2-plan.md) to break it into
 tracer bullets and write them into `specs/<slug>/implementation.md`.
 
 **GATE.** Present the numbered slices. Ask whether the granularity and ordering
-are right. Do not write code until the user approves.
+are right, **and which branch this will merge into** — the working branch is cut
+from that base, so it is needed before any code lands, not at PR time. Do not
+write code until the user approves.
 
 ## Phase 3 — Implement
 
@@ -49,10 +51,9 @@ Read `specs/<slug>/implementation.md` and work its slices in order. Follow
 [phases/3-implement.md](phases/3-implement.md) for the per-slice loop,
 verification commands, and the pull request.
 
-**GATE.** Before pushing, show `git diff main --stat`, the drafted PR body, and
-**ask which base branch to target** — `origin` here is a personal fork of
-cal.com, so both this fork's `main` and upstream are plausible and guessing
-sends the work to the wrong place.
+**GATE.** Before pushing, show `git diff <base> --stat` against the base chosen in
+Phase 2, plus the drafted PR body. Confirm that base is still the intended target
+— it is recorded in `implementation.md` — rather than defaulting to `main`.
 
 Report the PR URL when done.
 

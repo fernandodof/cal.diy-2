@@ -56,11 +56,23 @@ Consequences, per `specs/_templates/decisions.md`. Deferred ideas go in
 ## Gate
 
 Present the numbered slices and ask whether granularity and ordering are right.
-Do not write code until the user approves. On approval, commit the spec so the
-plan is in the branch's history before any implementation lands:
+Do not write code until the user approves.
+
+Ask **which branch this will merge into** at the same time. It is needed now, not
+at PR time: the working branch has to be cut from the base, or the diff ends up
+carrying whatever unrelated commits were checked out when work started, and the
+fix is a rebase after the work is done. Phase 3 reuses this answer as
+`gh pr create --base`.
+
+On approval, branch from the base and commit the spec so the plan is in the
+branch's history before any implementation lands:
 
 ```bash
-git checkout -b feat/<feature-slug>   # fix/… for bugfixes
+git fetch origin
+git checkout -b feat/<feature-slug> origin/<base>   # fix/… for bugfixes
 git add specs/<feature-slug>
 git commit -m "docs(<area>): design and plan for <feature>"
 ```
+
+Record the base in `implementation.md` under `## Session Notes` so a resumed
+session does not have to ask again.

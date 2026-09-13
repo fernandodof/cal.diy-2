@@ -32,6 +32,14 @@ For each slice:
 One commit per slice, so the PR reads as the slice progression. A slice that
 turns out to be wrong updates the plan file first, then the code.
 
+**When a slice cannot be completed** — a constraint that blocks it, a failing
+check you cannot fix, something the design does not answer — set
+`## Status: blocked`, write what blocked it and what you tried under `## Blocked`,
+commit that, and stop. Do not start the next slice, and do not work around a
+blocker the design did not anticipate. Surface it: the resume path reads
+`## Status`, so a blocked task that is left as `in-progress` looks resumable and
+is not.
+
 ## Verify
 
 Both must pass before the PR. Scope them — the full suite is slow here.
@@ -40,16 +48,31 @@ Both must pass before the PR. Scope them — the full suite is slow here.
 # Tests for what you touched (yarn test is `TZ=UTC vitest run`)
 yarn test <path/to/file.test.ts>
 
-# Type-check the affected workspace
-yarn turbo run type-check --filter=@calcom/features
+# Type-check
+yarn turbo run type-check --filter=@calcom/web
 ```
 
-Workspace names are the `name` field of the package's `package.json` —
-`@calcom/features`, `@calcom/lib`, `@calcom/trpc`, `@calcom/web`. `yarn
-type-check` with no filter runs the whole monorepo and is rarely what you want.
+**Most packages have no `type-check` task of their own.** Of the workspace names
+you are likely to reach for, only `@calcom/web` has one (`tsc --pretty --noEmit`);
+`@calcom/features`, `@calcom/lib` and `@calcom/trpc` do not. `@calcom/web`
+compiles what it imports, so it is the check that actually covers a change in
+those packages.
+
+This matters because **turbo exits 0 for a task that does not exist.** A filter
+naming a package without a `type-check` script prints `Tasks: N successful` and
+returns 0 without type-checking anything. Before trusting a different `--filter`,
+confirm the task is real:
+
+```bash
+yarn turbo run type-check --filter=<pkg> --dry=json   # command must not be "<NONEXISTENT>"
+```
+
+`yarn type-check` with no filter runs the whole monorepo and is rarely what you
+want.
 
 If either fails, fix it. Never open a PR on red, and never describe a failing
-check as passing — report the actual output.
+check as passing — report the actual output. A check that exited 0 without
+running is not a pass: say it did not run.
 
 ## Open the pull request
 
@@ -79,7 +102,7 @@ Spec: `specs/<feature-slug>/design.md` — <one line on the approach it settled 
 Checks run on this branch:
 
 - `yarn test <path>` — <result>
-- `yarn turbo run type-check --filter=@calcom/<package>` — <result>
+- `yarn turbo run type-check --filter=@calcom/web` — <result>
 ```
 
 Report check results honestly. If something was skipped or is failing, say which
@@ -87,13 +110,15 @@ and why — a PR body that claims green on red is worse than no PR body.
 
 ### Create it
 
-The base branch is **asked, never assumed** — `origin` here is a personal fork of
-cal.com, so this fork's `main` and upstream are both plausible targets and
-picking wrong sends the change to the wrong place.
+The base branch is the one the user named at the Phase 2 gate, which the working
+branch was cut from — it is recorded in `implementation.md` under
+`## Session Notes`. Never assume `main`: this repo is a personal fork of cal.com
+and a long-lived feature branch is a plausible target, so confirm the recorded
+base still matches the user's intent before pushing rather than defaulting.
 
 ```bash
 git push -u origin <branch>
-gh pr create --base <the branch the user named> --title "<conventional commit title>" --body "$(cat <<'BODY'
+gh pr create --base <the recorded base> --title "<conventional commit title>" --body "$(cat <<'BODY'
 ...body from the template...
 BODY
 )"

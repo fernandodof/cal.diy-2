@@ -71,12 +71,21 @@ generated types at once.
 ## 4. Read the nearest existing test
 
 ```bash
-find packages/features/<area> -name "*.test.ts" | head
+find packages/features/<area> \( -name "*.test.ts" -o -name "*.test.tsx" \) | head
 ```
+
+Search both extensions — they are different kinds of test, not a naming accident.
+`vitest.workspace.ts` registers `@calcom/features` component tests as `.tsx`,
+running under `jsdom` with `packages/ui/components/test-setup.tsx` as a setup
+file, while `.ts` tests run under node. Looking only for `*.test.ts` on a UI task
+surfaces service tests and leads to imitating the wrong style.
 
 Open one before writing any. It shows how this area builds fixtures and mocks
 Prisma. `packages/features/bookings/lib/` has several if the area you are
-touching has none.
+touching has none — though note that `packages/features/bookings/**` and
+`packages/features/form-builder/**` are excluded from the `@calcom/features`
+jsdom project and configured separately in `vitest.workspace.ts`, so copy their
+fixture style, not their environment assumptions.
 
 Note that `yarn test` runs `TZ=UTC vitest run` (see `package.json`), so tests
 execute under UTC regardless of your machine. Anything timezone-sensitive must
