@@ -25,20 +25,20 @@
    - `useBookingListColumns.tsx` needed no change: `BookingItemProps` derives from
      `RouterOutputs`, so the field reaches the row once the handler returns it.
 
+3. **A slot carries its override provenance to the client** — slots are flagged
+   after `getSlots` and the field rides the existing `passThroughProps` spread.
+   - `packages/trpc/server/routers/viewer/slots/util.ts`
+   - `yarn test packages/trpc/server/routers/viewer/slots/util.test.ts` — 1 passed
+   - `yarn turbo run type-check --filter=@calcom/web` — passed
+   - `returnDateOverrides` was **not** flipped: the raw availability rows are
+     already loaded regardless of it, and `findForSlots` already selects
+     `schedule.availability`. See the revised ADR-001.
+
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
-
-3. **A slot carries its override provenance to the client** — proves the
-   availability → slots → wire path that slice 4 renders.
-   - `packages/trpc/server/routers/viewer/slots/util.ts`
-   - Verified by: `yarn test packages/trpc/server/routers/viewer/slots/util.test.ts`,
-     plus inspecting the slots response for a schedule with a date override
-   - Flip `returnDateOverrides` to `true` (line 816); attach the flag so it rides
-     `passThroughProps` (lines 1267-1291); add the optional boolean to the slot
-     type at line 1269. Emit the field only when true.
 
 4. **The booker sees the notice on the confirm step** — proves the full
    user-visible feature.
@@ -75,4 +75,10 @@
   the row cannot read it; and the schedule lookup is wrapped in a `catch` so a
   failed lookup degrades to no badge rather than taking the bookings list down.
   Next: slice 3, plumbing override provenance through the slots endpoint.
+- Slice 3 done, and it corrected a premise in the plan. `returnDateOverrides:
+  false` is a deliberate CPU guard (`getUserAvailability.ts:439-441`: getSchedule
+  calls this per team-event user without using the values), so flipping it would
+  have reintroduced the cost it prevents. Not needed: the raw rows load at
+  `getUserAvailability.ts:415` regardless, and `findForSlots` already selects
+  `schedule.availability`. ADR-001 updated. Next: slice 4, the booker Alert.
 </content>
