@@ -168,5 +168,3 @@ the only caller passing `true` is the host-facing
   the booking or slot-generation path reads it, and several handlers hardcode it
   to `[]` (e.g. `packages/trpc/server/routers/viewer/availability/schedule/getScheduleByUserId.handler.ts:50`).
   The recurring-row filter it performs is the part worth reusing.
-</content>
-</invoke>

@@ -42,4 +42,3 @@ Nothing is blocked and nothing is persisted.
 - Don't block or gate the booking flow, and don't disable the confirm button
 - Don't annotate the slot grid (`AvailableTimes.tsx`) — confirm step only
 - Don't flag past bookings
-</content>

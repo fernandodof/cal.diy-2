@@ -11,6 +11,7 @@ import type {
 import type { IGetAvailableSlots } from "@calcom/features/bookings/Booker/hooks/useAvailableTimeSlots";
 import type { CheckBookingLimitsService } from "@calcom/features/bookings/lib/checkBookingLimits";
 import { checkForConflicts } from "@calcom/features/bookings/lib/conflictChecker/checkForConflicts";
+import { getScheduleForWorkingHours } from "@calcom/features/bookings/lib/getScheduleForWorkingHours";
 import { isOutsideRecurringHours } from "@calcom/features/bookings/lib/isOutsideRecurringHours";
 
 type QualifiedHostsService = {
@@ -1246,18 +1247,19 @@ export class AvailableSlotsService {
 
     // Slots a date override opened are bookable like any other, but fall outside the
     // schedule's recurring weekly hours. Flag them so the booker can say so.
-    const scheduleForWorkingHours = eventType.schedule;
+    // Only for a single host: with several, "the working hours" is ambiguous.
+    const scheduleForWorkingHours =
+      usersWithCredentials.length === 1
+        ? getScheduleForWorkingHours({ eventType, user: usersWithCredentials[0] })
+        : null;
+
     const slotsWithWorkingHours = scheduleForWorkingHours
       ? availableTimeSlots.map((slot) => {
           const outsideWorkingHours = isOutsideRecurringHours({
             start: slot.time,
             end: slot.time.add(input.duration || eventType.length, "minutes"),
             availability: scheduleForWorkingHours.availability,
-            timeZone:
-              scheduleForWorkingHours.timeZone ??
-              eventType.timeZone ??
-              allUsersAvailability?.[0]?.timeZone ??
-              "UTC",
+            timeZone: scheduleForWorkingHours.timeZone,
           });
           // Only carry the field when true, to leave the common slot unchanged on the wire.
           return outsideWorkingHours ? { ...slot, isOutsideWorkingHours: true as const } : slot;
