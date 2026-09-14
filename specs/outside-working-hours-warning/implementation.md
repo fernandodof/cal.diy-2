@@ -4,24 +4,20 @@
 
 ## Completed
 
+1. **The predicate exists and is correct in isolation** — `isOutsideRecurringHours`
+   and `getRecurringAvailability` in
+   `packages/features/bookings/lib/isOutsideRecurringHours.ts`, with 11 tests in
+   the sibling `.test.ts`. Covers recurring-only rows, override-created times,
+   boundary-spanning bookings, hosts with no recurring rows, the 11:59PM
+   allowance, and two explicit non-UTC timezone cases.
+   - `yarn test packages/features/bookings/lib/isOutsideRecurringHours.test.ts` — 11 passed
+   - `yarn turbo run type-check --filter=@calcom/web` — passed
+
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
-
-1. **The predicate exists and is correct in isolation** — proves the
-   recurring-vs-override rule, including the timezone handling that everything
-   else depends on. A booking time plus a set of `Availability` rows yields a
-   correct boolean.
-   - `packages/features/bookings/lib/isOutsideRecurringHours.ts` (new)
-   - `packages/features/bookings/lib/isOutsideRecurringHours.test.ts` (new)
-   - Verified by: `yarn test packages/features/bookings/lib/isOutsideRecurringHours.test.ts`
-   - Must cover: recurring-only rows (never outside), override-created times
-     (outside), a booking spanning the boundary (outside, mirroring
-     `hasDateRangeForBooking` containment), a host with no recurring rows
-     (nothing flagged), and a non-UTC schedule timezone with the zone set
-     explicitly — `yarn test` pins `TZ=UTC`.
 
 2. **A host's upcoming list flags an override booking, end to end** — proves
    server compute → payload → row render. This is the thinnest complete path and
@@ -70,4 +66,9 @@
 - File count is seven excluding tests, at the top of the `specs/README.md:77-81`
   limit. If Phase 3 pushes past it, slices 3-4 (the booker surface) split into a
   second PR; slices 1-2 stand alone as a shippable unit.
+- Slice 1 done. The predicate mirrors `processWorkingHours`
+  (`date-ranges.ts:60-83`) on the three things that are easy to get wrong: the
+  weekday is taken in the schedule's timezone, times are read as a UTC wall clock
+  via `getUTCHours()`/`getUTCMinutes()`, and a 23:59 end extends to midnight.
+  Next: slice 2, the bookings-list surface.
 </content>
