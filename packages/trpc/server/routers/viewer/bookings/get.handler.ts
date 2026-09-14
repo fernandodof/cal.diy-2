@@ -1,4 +1,5 @@
 import dayjs from "@calcom/dayjs";
+import { flagBookingsOutsideWorkingHours } from "@calcom/features/bookings/lib/flagBookingsOutsideWorkingHours";
 import getAllUserBookings from "@calcom/features/bookings/lib/getAllUserBookings";
 import { isTextFilterValue } from "@calcom/features/data-table/lib/utils";
 import type { DB } from "@calcom/kysely";
@@ -76,8 +77,14 @@ export const getHandler = async ({ ctx, input }: GetOptions) => {
   const hasMore = nextOffset < totalCount;
   const nextCursor = hasMore ? nextOffset.toString() : undefined;
 
+  // Only upcoming bookings are judged against the schedule - it is a live read, so
+  // it would re-interpret past bookings whenever the schedule changes.
+  const bookingsWithWorkingHours = bookingListingByStatus.includes("upcoming")
+    ? await flagBookingsOutsideWorkingHours({ bookings, userId: user.id, prisma })
+    : bookings.map((booking) => ({ ...booking, isOutsideWorkingHours: false }));
+
   return {
-    bookings,
+    bookings: bookingsWithWorkingHours,
     recurringInfo,
     totalCount,
     nextCursor,

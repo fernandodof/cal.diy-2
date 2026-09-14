@@ -32,10 +32,22 @@ describe("getHandler", () => {
     },
   };
 
-  const mockPrisma = {} as unknown as PrismaClient;
+  const mockPrisma = {
+    user: {
+      findUnique: vi.fn(),
+    },
+    schedule: {
+      findFirst: vi.fn(),
+    },
+  } as unknown as PrismaClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // No default schedule: nothing to judge the bookings against.
+    vi.mocked(mockPrisma.user.findUnique).mockResolvedValue({
+      timeZone: "UTC",
+      defaultScheduleId: null,
+    } as never);
   });
 
   it("should return bookings successfully", async () => {
@@ -74,7 +86,12 @@ describe("getHandler", () => {
       },
     });
 
-    expect(result.bookings).toEqual(mockBookings);
+    expect(result.bookings).toEqual(
+      mockBookings.map((booking: (typeof mockBookings)[number]) => ({
+        ...booking,
+        isOutsideWorkingHours: false,
+      }))
+    );
     expect(result.totalCount).toBe(1);
     expect(getAllUserBookings).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -91,6 +108,78 @@ describe("getHandler", () => {
         bookingListingByStatus: ["upcoming"],
       })
     );
+  });
+
+  it("should flag upcoming bookings that a date override opened outside working hours", async () => {
+    // Mon-Fri 09:00-17:00, stored as a UTC wall clock.
+    const time = (hours: number) => new Date(Date.UTC(1970, 0, 1, hours));
+    vi.mocked(mockPrisma.user.findUnique).mockResolvedValue({
+      timeZone: "UTC",
+      defaultScheduleId: 100,
+    } as never);
+    vi.mocked(mockPrisma.schedule.findFirst).mockResolvedValue({
+      timeZone: "UTC",
+      availability: [{ days: [1, 2, 3, 4, 5], startTime: time(9), endTime: time(17), date: null }],
+    } as never);
+
+    const mockBookings = [
+      {
+        id: 1,
+        uid: "inside-hours",
+        // Monday 10:00-11:00 UTC
+        startTime: "2026-09-14T10:00:00.000Z",
+        endTime: "2026-09-14T11:00:00.000Z",
+        status: "accepted",
+      },
+      {
+        id: 2,
+        uid: "from-override",
+        // Saturday 20:00-21:00 UTC, only bookable via a date override
+        startTime: "2026-09-19T20:00:00.000Z",
+        endTime: "2026-09-19T21:00:00.000Z",
+        status: "accepted",
+      },
+    ] as any;
+
+    vi.mocked(getAllUserBookings).mockResolvedValue({
+      bookings: mockBookings,
+      recurringInfo: [],
+      totalCount: 2,
+    });
+
+    const result = await getHandler({
+      ctx: { user: mockUser as any, prisma: mockPrisma },
+      input: { filters: {}, limit: 10, offset: 0 },
+    });
+
+    expect(result.bookings[0].isOutsideWorkingHours).toBe(false);
+    expect(result.bookings[1].isOutsideWorkingHours).toBe(true);
+    // The schedule is looked up once for the page, not once per booking.
+    expect(mockPrisma.schedule.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not flag bookings when the viewer's list is not the upcoming tab", async () => {
+    vi.mocked(getAllUserBookings).mockResolvedValue({
+      bookings: [
+        {
+          id: 1,
+          uid: "past-booking",
+          startTime: "2020-09-19T20:00:00.000Z",
+          endTime: "2020-09-19T21:00:00.000Z",
+          status: "accepted",
+        },
+      ] as any,
+      recurringInfo: [],
+      totalCount: 1,
+    });
+
+    const result = await getHandler({
+      ctx: { user: mockUser as any, prisma: mockPrisma },
+      input: { filters: { status: "past" }, limit: 10, offset: 0 },
+    });
+
+    expect(result.bookings[0].isOutsideWorkingHours).toBe(false);
+    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
   });
 });
 

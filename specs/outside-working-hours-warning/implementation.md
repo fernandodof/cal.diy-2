@@ -13,24 +13,23 @@
    - `yarn test packages/features/bookings/lib/isOutsideRecurringHours.test.ts` — 11 passed
    - `yarn turbo run type-check --filter=@calcom/web` — passed
 
+2. **A host's upcoming list flags an override booking, end to end** —
+   `flagBookingsOutsideWorkingHours` annotates the payload in `getHandler`, and
+   `BookingItemBadges` renders an orange badge with a tooltip.
+   - `packages/features/bookings/lib/flagBookingsOutsideWorkingHours.ts` (new)
+   - `packages/trpc/server/routers/viewer/bookings/get.handler.ts`
+   - `apps/web/components/booking/BookingListItem.tsx`
+   - `packages/i18n/locales/en/common.json`
+   - `yarn test packages/trpc/server/routers/viewer/bookings/get.handler.test.ts` — 9 passed
+   - `yarn turbo run type-check --filter=@calcom/web` — passed
+   - `useBookingListColumns.tsx` needed no change: `BookingItemProps` derives from
+     `RouterOutputs`, so the field reaches the row once the handler returns it.
+
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
-
-2. **A host's upcoming list flags an override booking, end to end** — proves
-   server compute → payload → row render. This is the thinnest complete path and
-   uses data already in reach.
-   - `packages/trpc/server/routers/viewer/bookings/get.handler.ts`
-   - `apps/web/modules/bookings/hooks/useBookingListColumns.tsx`
-   - `apps/web/components/booking/BookingListItem.tsx`
-   - `packages/i18n/locales/en/common.json`
-   - Verified by: `yarn test packages/trpc/server/routers/viewer/bookings/get.handler.test.ts`,
-     plus loading the bookings list with an override-created booking
-   - Skip the computation unless `upcoming` is among `bookingListingByStatus`
-     (`get.handler.ts:57-59`); fetch the viewer's recurring rows once per
-     request, never per booking; exclude cancelled/rejected.
 
 3. **A slot carries its override provenance to the client** — proves the
    availability → slots → wire path that slice 4 renders.
@@ -71,4 +70,9 @@
   weekday is taken in the schedule's timezone, times are read as a UTC wall clock
   via `getUTCHours()`/`getUTCMinutes()`, and a 23:59 end extends to midnight.
   Next: slice 2, the bookings-list surface.
+- Slice 2 done. Two things worth carrying forward: the flag has to be set on both
+  branches of the upcoming check, or it does not survive into `RouterOutputs` and
+  the row cannot read it; and the schedule lookup is wrapped in a `catch` so a
+  failed lookup degrades to no badge rather than taking the bookings list down.
+  Next: slice 3, plumbing override provenance through the slots endpoint.
 </content>
