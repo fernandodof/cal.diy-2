@@ -588,6 +588,17 @@ const BookingItemBadges = ({
           {booking.eventType.team.name}
         </Badge>
       )}
+      {booking.isOutsideWorkingHours && (
+        <Tooltip content={t("outside_working_hours_description")}>
+          <Badge
+            className="ltr:mr-2 rtl:ml-2"
+            variant="orange"
+            startIcon="clock"
+            data-testid="outside-working-hours">
+            {t("outside_working_hours")}
+          </Badge>
+        </Tooltip>
+      )}
       {booking?.assignmentReasonSortedByCreatedAt.length > 0 && (
         <AssignmentReasonTooltip
           assignmentReason={booking.assignmentReasonSortedByCreatedAt[booking.assignmentReasonSortedByCreatedAt.length - 1]}
