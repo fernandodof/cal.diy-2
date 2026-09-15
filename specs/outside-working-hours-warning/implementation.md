@@ -25,25 +25,37 @@
    - `useBookingListColumns.tsx` needed no change: `BookingItemProps` derives from
      `RouterOutputs`, so the field reaches the row once the handler returns it.
 
+3. **A slot carries its override provenance to the client** — slots are flagged
+   after `getSlots` and the field rides the existing `passThroughProps` spread.
+   - `packages/trpc/server/routers/viewer/slots/util.ts`
+   - `yarn test packages/trpc/server/routers/viewer/slots/util.test.ts` — 1 passed
+   - `yarn turbo run type-check --filter=@calcom/web` — passed
+   - `returnDateOverrides` was **not** flipped: the raw availability rows are
+     already loaded regardless of it, and `findForSlots` already selects
+     `schedule.availability`. See the revised ADR-001.
+
+3a. **Schedule resolution corrected after running the app** — the slots flag read
+   `eventType.schedule` directly, which is null whenever an event type inherits
+   the user's default schedule, so the booker flag never fired. Resolved through
+   the full precedence chain instead.
+   - `packages/features/bookings/lib/getScheduleForWorkingHours.ts` (new)
+   - `packages/trpc/server/routers/viewer/slots/util.ts`
+   - `yarn test packages/features/bookings/lib/getScheduleForWorkingHours.test.ts` — 5 passed
+   - Verified against the running app: Sat 19 Sep returned 4 slots, **all 4
+     flagged**; Fri 18 and Mon 21 returned 16 slots each, **0 flagged**.
+   - See ADR-002 in `decisions.md`.
+
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
 
-3. **A slot carries its override provenance to the client** — proves the
-   availability → slots → wire path that slice 4 renders.
-   - `packages/trpc/server/routers/viewer/slots/util.ts`
-   - Verified by: `yarn test packages/trpc/server/routers/viewer/slots/util.test.ts`,
-     plus inspecting the slots response for a schedule with a date override
-   - Flip `returnDateOverrides` to `true` (line 816); attach the flag so it rides
-     `passThroughProps` (lines 1267-1291); add the optional boolean to the slot
-     type at line 1269. Emit the field only when true.
-
 4. **The booker sees the notice on the confirm step** — proves the full
    user-visible feature.
    - `apps/web/modules/bookings/components/BookEventForm/BookEventForm.tsx`
-   - `packages/i18n/locales/en/common.json`
+   - `packages/features/bookings/Booker/utils/isTimeslotOutsideWorkingHours.ts` (new)
+   - `apps/web/modules/bookings/components/Booker.tsx`
    - Verified by: selecting an override-created slot in the booker and reaching
      the confirm step
    - New branch in the existing alert ternary (ends line 175), `severity="info"`
@@ -75,4 +87,19 @@
   the row cannot read it; and the schedule lookup is wrapped in a `catch` so a
   failed lookup degrades to no badge rather than taking the bookings list down.
   Next: slice 3, plumbing override provenance through the slots endpoint.
-</content>
+- Slice 3 done, and it corrected a premise in the plan. `returnDateOverrides:
+  false` is a deliberate CPU guard (`getUserAvailability.ts:439-441`: getSchedule
+  calls this per team-event user without using the values), so flipping it would
+  have reintroduced the cost it prevents. Not needed: the raw rows load at
+  `getUserAvailability.ts:415` regardless, and `findForSlots` already selects
+  `schedule.availability`. ADR-001 updated. Next: slice 4, the booker Alert.
+- **Running the app caught a bug the tests did not.** Slice 3 read
+  `eventType.schedule` directly, which is `null` for any event type that inherits
+  the user's default schedule - the common case, and true of every seeded event
+  type here. The guard then skipped flagging silently, so the booker Alert never
+  appeared while every unit test still passed. Fixed by resolving the schedule
+  through `detectEventTypeScheduleForUser`'s precedence chain (event type -> host
+  -> user default) in a new `getScheduleForWorkingHours`, which returns null
+  rather than letting the synthetic `DEFAULT_SCHEDULE_DATA` Mon-Fri 9-5 stand in
+  as a baseline. Flagging is also limited to single-host events, since "the
+  working hours" is ambiguous with several hosts. Covered by 5 new tests.
