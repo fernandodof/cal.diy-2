@@ -1,6 +1,6 @@
 # Outside Working Hours Warning Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -45,23 +45,32 @@
      flagged**; Fri 18 and Mon 21 returned 16 slots each, **0 flagged**.
    - See ADR-002 in `decisions.md`.
 
+4. **The booker sees the notice on the confirm step** — a new branch in the
+   existing alert ternary, `severity="info"`, confirm button left enabled and
+   `isTimeslotUnavailable` keeping precedence over it.
+   - `packages/features/bookings/Booker/utils/isTimeslotOutsideWorkingHours.ts` (new)
+   - `apps/web/modules/bookings/components/Booker.tsx`
+   - `apps/web/modules/bookings/components/BookEventForm/BookEventForm.tsx`
+   - `packages/i18n/locales/en/common.json`
+   - `yarn test packages/features/bookings/Booker/utils/isTimeslotOutsideWorkingHours.test.ts` — 6 passed
+   - `yarn test apps/web/modules/bookings/components/Booker.test.tsx` — 4 passed
+   - `yarn turbo run type-check --filter=@calcom/web` — passed
+
+5. **Verified in the running app** — dev server against the local Postgres, with
+   schedule 3 narrowed to Mon-Fri 09:00-17:00 and a Saturday 2026-09-19
+   20:00-22:00 override added, then restored.
+   - Booker confirm step: info Alert "Outside usual hours" rendered above an
+     **enabled** Confirm button on the override slot; absent on a Monday 11:00 slot.
+   - Bookings list: orange "Outside working hours" badge on the Saturday booking,
+     absent on the Monday one, and absent throughout the Past tab.
+
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
 
-4. **The booker sees the notice on the confirm step** — proves the full
-   user-visible feature.
-   - `apps/web/modules/bookings/components/BookEventForm/BookEventForm.tsx`
-   - `packages/features/bookings/Booker/utils/isTimeslotOutsideWorkingHours.ts` (new)
-   - `apps/web/modules/bookings/components/Booker.tsx`
-   - Verified by: selecting an override-created slot in the booker and reaching
-     the confirm step
-   - New branch in the existing alert ternary (ends line 175), `severity="info"`
-     matching lines 140 and 156. Confirm button stays enabled. The
-     `isTimeslotUnavailable` branch takes precedence — blocking outranks
-     advisory.
+All slices complete and verified in the app.
 
 ## Session Notes
 
@@ -103,3 +112,8 @@
   rather than letting the synthetic `DEFAULT_SCHEDULE_DATA` Mon-Fri 9-5 stand in
   as a baseline. Flagging is also limited to single-host events, since "the
   working hours" is ambiguous with several hosts. Covered by 5 new tests.
+- Slice 4 done. The lookup helper mirrors `isTimeslotAvailable.ts`, including its
+  look-either-side-of-the-date handling: the booker's timezone can file a slot
+  under the previous or next date key. Threaded through `Booker.tsx` the way
+  `isTimeslotUnavailable` already is, and added to the `EventBooker` useMemo deps
+  so the notice does not go stale.

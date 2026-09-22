@@ -14,6 +14,7 @@ import framerFeatures from "@calcom/features/bookings/Booker/framer-features";
 import type { BookerProps } from "@calcom/features/bookings/Booker/types";
 import { isBookingDryRun } from "@calcom/features/bookings/Booker/utils/isBookingDryRun";
 import { isTimeSlotAvailable } from "@calcom/features/bookings/Booker/utils/isTimeslotAvailable";
+import { isTimeSlotOutsideWorkingHours } from "@calcom/features/bookings/Booker/utils/isTimeslotOutsideWorkingHours";
 import { getQueryParam } from "@calcom/features/bookings/Booker/utils/query-param";
 import { Header } from "@calcom/features/bookings/components/Header";
 import { BookerSection } from "@calcom/features/bookings/components/Section";
@@ -238,6 +239,11 @@ const BookerComponent = ({
       })
     : [];
 
+  const isSelectedTimeslotOutsideWorkingHours = isTimeSlotOutsideWorkingHours({
+    scheduleData: schedule?.data ?? null,
+    slotToCheckInIso: selectedTimeslot || "",
+  });
+
   const slot = getQueryParam("slot");
 
   useEffect(() => {
@@ -276,6 +282,7 @@ const BookerComponent = ({
         errorRef={bookerFormErrorRef}
         errors={{ ...formErrors, ...errors }}
         isTimeslotUnavailable={unavailableTimeSlots.includes(selectedTimeslot || "")}
+        isTimeslotOutsideWorkingHours={isSelectedTimeslotOutsideWorkingHours}
         loadingStates={loadingStates}
         renderConfirmNotVerifyEmailButtonCond={renderConfirmNotVerifyEmailButtonCond}
         bookingForm={bookingForm}
@@ -310,6 +317,7 @@ const BookerComponent = ({
     shouldRenderCaptcha,
     isVerificationCodeSending,
     unavailableTimeSlots,
+    isSelectedTimeslotOutsideWorkingHours,
   ]);
 
   /**
