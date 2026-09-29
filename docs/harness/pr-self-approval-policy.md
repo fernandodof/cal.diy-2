@@ -10,8 +10,20 @@ here is how it gets wasted.
 So translations are where self-approval pays. This policy defines exactly when a
 **translation-only** PR may be merged without a human reading the diff.
 
-`scripts/pr-self-approval.sh` implements it; the `self-approval-check` skill
-collects the evidence and runs it.
+## How it is enforced
+
+Three pieces, deliberately separate:
+
+| | |
+|---|---|
+| `scripts/pr-evidence.sh` | Gathers the facts from GitHub and git. Decides nothing. |
+| `scripts/pr-self-approval.sh` | Applies this document to those facts. Touches no network. |
+| `.claude/skills/self-approval-check/` | Runs the pair and reports the verdict. |
+
+The seam between the first two is a JSON document — see
+[pr-evidence-schema.md](pr-evidence-schema.md). Keeping them apart means this
+policy can be tested against handwritten evidence with no network, and the same
+evidence can be judged twice without being gathered twice.
 
 ## Scope
 

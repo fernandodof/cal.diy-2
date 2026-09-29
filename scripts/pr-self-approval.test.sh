@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# Gate-logic tests for scripts/pr-self-approval.sh.
+# Tests for scripts/pr-self-approval.sh.
 #
-# The control itself needs a live PR, so these tests exercise the part that can
-# be wrong without anyone noticing: the jq that compares two versions of a
-# locale file. Each case builds a before/after pair from the real pt-BR file and
-# asserts which gate fires.
+# The policy reads an evidence document and nothing else, so these tests feed it
+# handwritten evidence and assert the verdict. No network, no GitHub, no git —
+# which is the reason collection and policy are separate scripts.
 #
 # Usage: ./scripts/pr-self-approval.test.sh
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-EN="$REPO_ROOT/packages/i18n/locales/en/common.json"
-BASE="$REPO_ROOT/packages/i18n/locales/pt-BR/common.json"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+POLICY="$REPO_ROOT/scripts/pr-self-approval.sh"
+EN_FILE="$REPO_ROOT/packages/i18n/locales/en/common.json"
+BASE_FILE="$REPO_ROOT/packages/i18n/locales/pt-BR/common.json"
 
 fails=0
 check() {
@@ -22,84 +20,129 @@ check() {
   if [[ "$expected" == "$actual" ]]; then
     echo "  ok   $name"
   else
-    echo "  FAIL $name: expected $expected, got $actual"
+    echo "  FAIL $name: expected '$expected', got '$actual'"
     fails=$((fails + 1))
   fi
 }
 
-LEAVES='[paths(scalars) | map(tostring) | join(".")]'
-MISMATCH='
-  def leafmap: [paths(scalars) as $p | {key: ($p | map(tostring) | join(".")), value: getpath($p)}] | from_entries;
-  def vars:
-    if type != "string" then ["<non-string>"]
-    else [scan("\\{\\{\\s*([^}]+?)\\s*\\}\\}") | .[0]]
-         + [scan("\\{\\s*([A-Za-z0-9_]+)\\s*,\\s*(?:plural|select|selectordinal)\\b") | .[0]]
-         | sort | unique
-    end;
-  ($en | leafmap) as $E | ($tr | leafmap) as $T
-  | [$T | to_entries[] | select($E[.key] != null)
-     | select(($E[.key] | vars) != (.value | vars)) | .key] | sort'
+EN_JSON="$(cat "$EN_FILE")"
+BEFORE_JSON="$(cat "$BASE_FILE")"
 
-EN_JSON="$(cat "$EN")"
-BEFORE="$(cat "$BASE")"
-BEFORE_LEAVES="$(jq "$LEAVES" <<<"$BEFORE")"
-BEFORE_BAD="$(jq -n --argjson en "$EN_JSON" --argjson tr "$BEFORE" "$MISMATCH")"
-EN_LEAVES="$(jq "$LEAVES" <<<"$EN_JSON")"
-
-# Echoes "deleted orphan shape placeholder" for an after-version of the file.
-gates() {
-  local after="$1" after_leaves deleted orphan shape after_bad placeholder
-  after_leaves="$(jq "$LEAVES" <<<"$after")"
-  deleted="$(jq -n --argjson a "$BEFORE_LEAVES" --argjson b "$after_leaves" '$a - $b | length')"
-  orphan="$(jq -n --argjson l "$after_leaves" --argjson p "$BEFORE_LEAVES" --argjson e "$EN_LEAVES" \
-    '(($l - $e) - ($p - $e)) | length')"
-  shape="$(jq -r '([paths(scalars) as $p | getpath($p) | select(type != "string")] | length)
-                  + ([paths as $p | getpath($p) | select(type == "array")] | length)' <<<"$after" 2>/dev/null)" || shape="ERR"
-  after_bad="$(jq -n --argjson en "$EN_JSON" --argjson tr "$after" "$MISMATCH" 2>/dev/null)" || after_bad=""
-  if [[ -z "$after_bad" ]]; then
-    placeholder="ERR"
-  else
-    placeholder="$(jq -n --argjson a "$after_bad" --argjson b "$BEFORE_BAD" '$a - $b | length')"
-  fi
-  echo "$deleted $orphan $shape $placeholder"
+# Build an evidence document for a single pt-BR change. Extra top-level fields
+# can be overridden by passing a jq expression as $2.
+evidence() {
+  local after="$1" override="${2:-.}"
+  jq -n \
+    --argjson en "$EN_JSON" \
+    --argjson before "$BEFORE_JSON" \
+    --argjson after "$after" \
+    '{
+      schema: "pr-evidence/1",
+      collected_at: "2026-09-29T00:00:00Z",
+      source_locale: "packages/i18n/locales/en/common.json",
+      locale_glob: "packages/i18n/locales/*/common.json",
+      merge_base: "abc123",
+      pr: {
+        number: 1, url: "https://example.test/pr/1", title: "translations",
+        author: "fernandodof", is_draft: false,
+        head_sha: "def456", base_ref: "main",
+        changed_files: ["packages/i18n/locales/pt-BR/common.json"],
+        changes_requested: 0,
+        checks: [{name: "lint", state: "SUCCESS"}]
+      },
+      en_before: $en,
+      locales: [{
+        path: "packages/i18n/locales/pt-BR/common.json",
+        locale: "pt-BR",
+        after: $after, before: $before,
+        after_present: true, after_parsed: true, before_parsed: true
+      }]
+    }' | jq "$override"
 }
 
-echo "pr-self-approval gate logic"
+# Runs the policy over an evidence document and echoes "<verdict> <reason count>".
+verdict() {
+  local out
+  out="$("$POLICY" --json --evidence <(echo "$1") 2>/dev/null)" || true
+  jq -r '"\(.verdict) \(.reasons | length)"' <<<"$out"
+}
 
-# A reworded value that keeps its placeholder is the case the policy exists to
-# wave through.
-check "clean retranslation passes every gate" "0 0 0 0" \
-  "$(gates "$(jq '.["event_type_updated_successfully"] = "{{eventTypeTitle}} tipo de evento foi atualizado com sucesso"' <<<"$BEFORE")")"
+echo "pr-self-approval policy"
 
-check "a deleted key is caught" "1 0 0 0" \
-  "$(gates "$(jq 'del(.["accept"])' <<<"$BEFORE")")"
+# --- the happy path ---------------------------------------------------------
+CLEAN="$(jq '.["event_type_updated_successfully"] = "{{eventTypeTitle}} tipo de evento foi atualizado com sucesso"' <<<"$BEFORE_JSON")"
+check "a clean retranslation auto-approves" "auto-approve 0" \
+  "$(verdict "$(evidence "$CLEAN")")"
 
-check "a key absent from en is caught" "0 1 0 0" \
-  "$(gates "$(jq '.["totally_made_up_key"] = "oi"' <<<"$BEFORE")")"
-
-check "a dropped placeholder is caught" "0 0 0 1" \
-  "$(gates "$(jq '.["event_awaiting_approval_subject"] = "Aguardando aprovacao"' <<<"$BEFORE")")"
-
-check "a non-string value is caught" "0 0 1 1" \
-  "$(gates "$(jq '.["accept"] = 42' <<<"$BEFORE")")"
-
-# Pre-existing drift belongs to whoever introduced it, not to the next PR that
-# happens to touch the file. Touching nothing must score clean.
-check "pre-existing drift is not charged to this PR" "0 0 0 0" \
-  "$(gates "$BEFORE")"
+# Touching nothing must also pass: pre-existing drift in the repo belongs to
+# whoever introduced it, not to the next PR that opens the file.
+check "pre-existing drift is not charged to this PR" "auto-approve 0" \
+  "$(verdict "$(evidence "$BEFORE_JSON")")"
 
 # An ICU plural carries the same variable as en's {{count}}, in another
-# notation. Flagging it would fail correct translations.
-# The ICU string is passed as an argument rather than inlined in the filter:
-# bash brace-expands a bare {a,b} and would rewrite it before jq sees it.
+# notation. Flagging it would fail correct translations. Passed as an argument
+# because bash would brace-expand a bare {a,b} inside the filter.
 ICU_PLURAL='{count, plural, one {1 entrada} other {# entradas}}'
-check "an ICU plural is not a dropped placeholder" "0 0 0 0" \
-  "$(gates "$(jq --arg v "$ICU_PLURAL" '.["entries_deleted_successfully"] = $v' <<<"$BEFORE")")"
+check "an ICU plural is not a dropped placeholder" "auto-approve 0" \
+  "$(verdict "$(evidence "$(jq --arg v "$ICU_PLURAL" '.["entries_deleted_successfully"] = $v' <<<"$BEFORE_JSON")")")"
+
+# --- structural gates -------------------------------------------------------
+check "a deleted key needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$(jq 'del(.["accept"])' <<<"$BEFORE_JSON")")")"
+
+check "a key absent from en needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$(jq '.["totally_made_up_key"] = "oi"' <<<"$BEFORE_JSON")")")"
+
+check "a dropped placeholder needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$(jq '.["event_awaiting_approval_subject"] = "Aguardando aprovacao"' <<<"$BEFORE_JSON")")")"
+
+# A non-string value trips the shape gate and, because its placeholders can no
+# longer be read, the placeholder gate too.
+check "a non-string value needs a human" "needs-human 2" \
+  "$(verdict "$(evidence "$(jq '.["accept"] = 42' <<<"$BEFORE_JSON")")")"
+
+check "a file that does not parse needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$BEFORE_JSON" '.locales[0].after_parsed = false')")"
+
+# --- scope and state gates --------------------------------------------------
+check "a non-translation file needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.changed_files += ["packages/lib/foo.ts"]')")"
+
+# en matches the locale glob, so this trips the source-of-truth gate only —
+# the scope gate has no quarrel with it.
+check "modifying en needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.changed_files += ["packages/i18n/locales/en/common.json"]')")"
+
+check "a failing check needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.checks = [{name: "lint", state: "FAILURE"}]')")"
+
+check "no checks at all needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.checks = []')")"
+
+check "a draft needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.is_draft = true')")"
+
+check "a requested change needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.changes_requested = 1')")"
+
+check "an untrusted author needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.author = "a-stranger"')")"
+
+check "the translation bot is trusted" "auto-approve 0" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.author = "lingo-dot-dev[bot]"')")"
+
+# --- evidence gates ---------------------------------------------------------
+# Missing evidence must fail closed: a gate that could not run is not satisfied.
+check "an unresolved merge base needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.merge_base = null')")"
+
+check "an unreadable en needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.en_before = null')")"
 
 echo
 if [[ $fails -eq 0 ]]; then
-  echo "all gate tests passed"
+  echo "all policy tests passed"
 else
-  echo "$fails gate test(s) failed"
+  echo "$fails policy test(s) failed"
   exit 1
 fi
