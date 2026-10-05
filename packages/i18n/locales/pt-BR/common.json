@@ -1043,7 +1043,7 @@
   "no_call_history": "Sem histórico de chamadas",
   "no_call_history_description": "Crie seu primeiro fluxo de trabalho Cal.ai e visualize seu histórico de chamadas aqui.",
   "create_first_workflow": "Criar um fluxo de trabalho Cal.ai",
-  "event_type_updated_successfully": "{{eventTypeTitle}} tipo de evento atualizado com sucesso",
+  "event_type_updated_successfully": "{{eventTypeTitle}} tipo de evento foi atualizado com sucesso",
   "event_type_deleted_successfully": "Tipo de evento removido com sucesso",
   "hours": "Horas",
   "people": "Pessoas",
