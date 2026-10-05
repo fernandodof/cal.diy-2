@@ -14,6 +14,12 @@ diff?** The answer is `auto-approve` or `needs-human`, and it comes from
 report what it found. If you disagree with its answer, say so in your report and
 leave the verdict standing.
 
+Locale PRs are judged automatically by
+`.github/workflows/translation-self-approval.yml`, which approves the ones that
+pass. Run this skill when you want the verdict for a PR the workflow has not
+covered, when triaging a queue, or when someone asks why a PR was routed to a
+human.
+
 ## Run it
 
 Two scripts: one gathers evidence, one judges it.
