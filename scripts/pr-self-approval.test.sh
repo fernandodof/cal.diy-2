@@ -61,9 +61,14 @@ evidence() {
 }
 
 # Runs the policy over an evidence document and echoes "<verdict> <reason count>".
+# The document goes through a file: a 43-locale fixture is tens of megabytes and
+# would not survive being passed around as an argument.
 verdict() {
-  local out
-  out="$("$POLICY" --json --evidence <(echo "$1") 2>/dev/null)" || true
+  local out tmp
+  tmp="$(mktemp)"
+  printf '%s' "$1" > "$tmp"
+  out="$("$POLICY" --json --evidence "$tmp" 2>/dev/null)" || true
+  rm -f "$tmp"
   jq -r '"\(.verdict) \(.reasons | length)"' <<<"$out"
 }
 
@@ -138,6 +143,28 @@ check "an unresolved merge base needs a human" "needs-human 1" \
 
 check "an unreadable en needs a human" "needs-human 1" \
   "$(verdict "$(evidence "$CLEAN" '.en_before = null')")"
+
+# --- scale -----------------------------------------------------------------
+# A lingo.dev run touches every locale at once. Locale files are ~340KB each, so
+# this is also the regression test for passing them to jq as arguments, which
+# blew past ARG_MAX and killed the collector.
+BIG_TMP="$(mktemp -d)"
+evidence "$BEFORE_JSON" > "$BIG_TMP/base.json"
+jq -n --slurpfile before "$BASE_FILE" '
+  [range(0; 43) as $i
+   | {path: "packages/i18n/locales/loc\($i)/common.json",
+      locale: "loc\($i)",
+      after: $before[0], before: $before[0],
+      after_present: true, after_parsed: true, before_parsed: true}]' > "$BIG_TMP/locales.json"
+jq --slurpfile locales "$BIG_TMP/locales.json" '
+  .locales = $locales[0]
+  | .pr.changed_files = [$locales[0][].path]
+  | .pr.author = "lingo-dot-dev[bot]"' "$BIG_TMP/base.json" > "$BIG_TMP/big.json"
+
+big_out="$("$POLICY" --json --evidence "$BIG_TMP/big.json" 2>/dev/null)" || true
+check "a 43-locale PR is judged without hitting argv limits" "auto-approve 0" \
+  "$(jq -r '"\(.verdict) \(.reasons | length)"' <<<"$big_out")"
+rm -rf "$BIG_TMP"
 
 echo
 if [[ $fails -eq 0 ]]; then
