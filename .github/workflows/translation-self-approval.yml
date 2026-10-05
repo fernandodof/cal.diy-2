@@ -1,0 +1,170 @@
+name: Translation self-approval
+
+# Runs the self-approval control (docs/harness/pr-self-approval-policy.md) on
+# every PR that touches a locale file, and approves the ones that pass.
+#
+# SECURITY. This uses pull_request_target, so it runs with a write-scoped token
+# and secrets available to a PR opened from a fork. Two rules follow from that,
+# and both matter:
+#
+#   1. The checkout below is of the BASE repo, never the PR head. The policy,
+#      the scripts and this workflow are therefore always the trusted versions
+#      from main — a PR cannot edit the rules that judge it.
+#   2. Nothing from the PR is executed. The evidence collector reads PR blobs
+#      with `git show`, as data. No install, no build, no test runs here.
+#
+# A PR that changes this file is not translation-only, so the policy's scope
+# gate routes it to a human: the rules are never approved by the rules.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "packages/i18n/locales/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  self-approval:
+    name: Self-approval check
+    runs-on: ubuntu-latest
+    steps:
+      # The base repo, not the PR head: see the security note above.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          # The collector diffs the PR against its merge base, so it needs
+          # history rather than a single-commit clone.
+          fetch-depth: 0
+
+      - name: Run the self-approval control
+        id: control
+        # A non-zero exit here must not abort the job before it can explain
+        # itself; the final step decides the job's conclusion.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+
+          ./scripts/pr-evidence.sh "$PR_NUMBER" > evidence.json || {
+            echo "could not collect evidence for #$PR_NUMBER" >&2
+            exit 2
+          }
+
+          ./scripts/pr-self-approval.sh --json --evidence evidence.json > verdict.json
+          status=$?
+
+          # Exit 2 means the control did not run. That is never an approval, so
+          # it is surfaced as a failure rather than folded into needs-human.
+          if [[ $status -gt 1 ]]; then
+            echo "the control could not run (exit $status)" >&2
+            exit $status
+          fi
+
+          {
+            echo "verdict=$(jq -r .verdict verdict.json)"
+            echo "reasons<<EOF"
+            jq -r '.reasons[]? | "- \(.)"' verdict.json
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          ./scripts/pr-self-approval.sh --evidence evidence.json || true
+
+      - name: Approve
+        # Both conditions, deliberately: the control must have succeeded AND
+        # said auto-approve. Keying off the verdict alone would approve on any
+        # path that left that output set without the control completing.
+        if: steps.control.outcome == 'success' && steps.control.outputs.verdict == 'auto-approve'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+
+            // Re-approving on every push would bury the PR in reviews, so an
+            // approval already standing from this workflow is left alone.
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner, repo, pull_number,
+            });
+            const mine = reviews.some(
+              (r) => r.user?.login === "github-actions[bot]" && r.state === "APPROVED"
+            );
+            if (mine) {
+              core.info("already approved by this workflow");
+              return;
+            }
+
+            await github.rest.pulls.createReview({
+              owner, repo, pull_number,
+              event: "APPROVE",
+              body: [
+                "Approved by the translation self-approval control.",
+                "",
+                "Every gate in `docs/harness/pr-self-approval-policy.md` passed: the diff is",
+                "translation-only, `en` is untouched, no keys moved, every interpolation",
+                "placeholder survived, and CI is green.",
+                "",
+                "This is a structural check, not a review of translation quality — see the",
+                "policy's \"What is deliberately *not* gated\" section.",
+              ].join("\n"),
+            });
+
+      - name: Explain why a human is needed
+        if: steps.control.outcome == 'success' && steps.control.outputs.verdict == 'needs-human'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const marker = "<!-- translation-self-approval -->";
+            const body = [
+              marker,
+              "**This translation PR needs a human to read the diff.**",
+              "",
+              process.env.REASONS || "- (no reasons reported)",
+              "",
+              "That is a routing decision, not a rejection — see",
+              "`docs/harness/pr-self-approval-policy.md`. A maintainer may still merge after",
+              "reading the diff.",
+            ].join("\n");
+
+            // One comment per PR, edited in place, rather than a new one per push.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number,
+            });
+            const existing = comments.find((c) => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number, body,
+              });
+            }
+        env:
+          REASONS: ${{ steps.control.outputs.reasons }}
+
+      # The job's own conclusion is the signal a branch-protection rule can
+      # require, so anything short of a clean auto-approve must fail it —
+      # including a control that could not run at all.
+      - name: Fail unless auto-approved
+        if: steps.control.outcome != 'success' || steps.control.outputs.verdict != 'auto-approve'
+        run: |
+          if [[ "${{ steps.control.outcome }}" != "success" ]]; then
+            echo "the self-approval control did not run to completion; a human must read this PR"
+          else
+            echo "verdict: ${{ steps.control.outputs.verdict }}"
+          fi
+          exit 1

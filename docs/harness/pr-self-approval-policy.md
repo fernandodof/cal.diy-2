@@ -18,7 +18,8 @@ Three pieces, deliberately separate:
 |---|---|
 | `scripts/pr-evidence.sh` | Gathers the facts from GitHub and git. Decides nothing. |
 | `scripts/pr-self-approval.sh` | Applies this document to those facts. Touches no network. |
-| `.claude/skills/self-approval-check/` | Runs the pair and reports the verdict. |
+| `.claude/skills/self-approval-check/` | Runs the pair and reports the verdict, on request. |
+| `.github/workflows/translation-self-approval.yml` | Runs the pair on every locale PR, and approves the ones that pass. |
 
 The seam between the first two is a JSON document — see
 [pr-evidence-schema.md](pr-evidence-schema.md). Keeping them apart means this
@@ -116,6 +117,33 @@ Portuguese. That is not machine-checkable, and pretending otherwise would make
 the policy dishonest about what it guarantees. What it guarantees is structural:
 the file parses, the keys line up, the placeholders survive. A bad translation
 merged under this policy is a bug to fix forward, not a gate to add.
+
+## Enforcement
+
+`.github/workflows/translation-self-approval.yml` runs on any PR touching
+`packages/i18n/locales/**`. On `auto-approve` it submits a GitHub approving
+review; on `needs-human` it comments with the failed gates and fails the job, so
+the result can be required by a branch-protection rule.
+
+**It approves. It never merges.** Clearing the gates means a human may merge the
+PR without reading the diff — not that the machine should merge it unattended.
+
+Three properties of that workflow are load-bearing:
+
+- It checks out the **base** repo, never the PR head, so a PR cannot edit the
+  policy, the scripts, or the workflow that judges it. `pull_request_target`
+  hands a write-scoped token to code from a fork; checking out the PR would hand
+  that token to the fork.
+- It **executes nothing** from the PR. The collector reads blobs with
+  `git show`, as data. No install, no build, no tests.
+- It **fails closed**. A control that cannot run is reported as a failure, not
+  folded into `needs-human` and certainly not into an approval.
+
+A PR that changes `.github/workflows/` is not translation-only, so gate 1 routes
+it to a human and it can never self-approve — this workflow included. The same
+goes for a PR editing the policy or the scripts: the rules are never approved by
+the rules, and that falls out of the scope gate rather than needing a list of
+protected paths.
 
 ## Escalation
 
