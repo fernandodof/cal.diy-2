@@ -57,11 +57,23 @@ HEAD_SHA="$(jq -r '.headRefOid' <<<"$PR_JSON")"
 BASE_REF="$(jq -r '.baseRefName' <<<"$PR_JSON")"
 CHANGED_FILES="$(jq -r '.files[].path' <<<"$PR_JSON")"
 
-# Read a file at a git revision; empty output means the file is absent there.
+# Locale files run to hundreds of KB, and a 44-locale PR would exceed ARG_MAX
+# if their contents were passed to jq as arguments. Everything large goes
+# through files on disk instead of argv.
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+# Write a file at a git revision to $TMP_DIR/$2 and echo "ok" when it exists and
+# parses as JSON, "malformed" when it exists but does not, "absent" otherwise.
 # Objects are fetched on demand so this works without a full local clone.
-blob_at() {
-  local rev="$1" path="$2"
-  git -C "$REPO_ROOT" show "$rev:$path" 2>/dev/null || true
+blob_to() {
+  local rev="$1" path="$2" dest="$TMP_DIR/$3"
+  if ! git -C "$REPO_ROOT" show "$rev:$path" > "$dest" 2>/dev/null; then
+    : > "$dest"
+    echo "absent"; return
+  fi
+  [[ -s "$dest" ]] || { echo "absent"; return; }
+  if jq -e . >/dev/null 2>&1 < "$dest"; then echo "ok"; else echo "malformed"; fi
 }
 
 git -C "$REPO_ROOT" fetch --quiet origin "$HEAD_SHA" "$BASE_REF" 2>/dev/null || true
@@ -69,57 +81,61 @@ MERGE_BASE="$(git -C "$REPO_ROOT" merge-base "origin/$BASE_REF" "$HEAD_SHA" 2>/d
 
 # Unreachable evidence is reported as such, not guessed at. The policy decides
 # what an empty merge base means — here it is simply a fact about the world.
-EN_BEFORE="null"
+echo "null" > "$TMP_DIR/en_before.json"
 if [[ -n "$MERGE_BASE" ]]; then
-  en_raw="$(blob_at "$MERGE_BASE" "$SOURCE_LOCALE")"
-  if [[ -n "$en_raw" ]] && jq -e . >/dev/null 2>&1 <<<"$en_raw"; then
-    EN_BEFORE="$en_raw"
+  if [[ "$(blob_to "$MERGE_BASE" "$SOURCE_LOCALE" "en_candidate.json")" == "ok" ]]; then
+    mv "$TMP_DIR/en_candidate.json" "$TMP_DIR/en_before.json"
   fi
 fi
 
 # One entry per changed translation file, carrying both sides of the diff.
 # `parsed` records whether each side is valid JSON so the policy can tell a
 # malformed file from an absent one without re-parsing.
-LOCALES="[]"
+entry_count=0
 while IFS= read -r path; do
   [[ -n "$path" ]] || continue
   # shellcheck disable=SC2053 — glob matching is the intent.
   [[ "$path" == $LOCALE_GLOB ]] || continue
   [[ "$path" == "$SOURCE_LOCALE" ]] && continue
 
-  after_raw="$(blob_at "$HEAD_SHA" "$path")"
-  before_raw=""
-  [[ -n "$MERGE_BASE" ]] && before_raw="$(blob_at "$MERGE_BASE" "$path")"
+  after_state="$(blob_to "$HEAD_SHA" "$path" "after.json")"
+  before_state="absent"
+  [[ -n "$MERGE_BASE" ]] && before_state="$(blob_to "$MERGE_BASE" "$path" "before.json")"
 
-  after_json="null"; after_ok=false
-  if [[ -n "$after_raw" ]] && jq -e . >/dev/null 2>&1 <<<"$after_raw"; then
-    after_json="$after_raw"; after_ok=true
-  fi
+  # A blob that is absent or malformed is recorded as null; the flags say which,
+  # so the policy can tell "missing at head" from "there but unparseable".
+  [[ "$after_state" == "ok" ]]  || echo "null" > "$TMP_DIR/after.json"
+  [[ "$before_state" == "ok" ]] || echo "null" > "$TMP_DIR/before.json"
 
-  before_json="null"; before_ok=false
-  if [[ -n "$before_raw" ]] && jq -e . >/dev/null 2>&1 <<<"$before_raw"; then
-    before_json="$before_raw"; before_ok=true
-  fi
-
-  LOCALES="$(jq -n \
-    --argjson acc "$LOCALES" \
+  jq -n \
+    --slurpfile after "$TMP_DIR/after.json" \
+    --slurpfile before "$TMP_DIR/before.json" \
     --arg path "$path" \
     --arg locale "$(basename "$(dirname "$path")")" \
-    --argjson after "$after_json" \
-    --argjson before "$before_json" \
-    --argjson after_parsed "$after_ok" \
-    --argjson before_parsed "$before_ok" \
-    --argjson after_present "$([[ -n "$after_raw" ]] && echo true || echo false)" \
-    '$acc + [{path: $path, locale: $locale,
-              after: $after, before: $before,
-              after_present: $after_present,
-              after_parsed: $after_parsed, before_parsed: $before_parsed}]')"
+    --argjson after_present "$([[ "$after_state" != "absent" ]] && echo true || echo false)" \
+    --argjson after_parsed "$([[ "$after_state" == "ok" ]] && echo true || echo false)" \
+    --argjson before_parsed "$([[ "$before_state" == "ok" ]] && echo true || echo false)" \
+    '{path: $path, locale: $locale,
+      after: $after[0], before: $before[0],
+      after_present: $after_present,
+      after_parsed: $after_parsed, before_parsed: $before_parsed}' \
+    > "$TMP_DIR/entry-$entry_count.json"
+  entry_count=$((entry_count + 1))
 done <<<"$CHANGED_FILES"
 
+# Collect the per-locale entries into one array without passing them as args.
+if [[ $entry_count -gt 0 ]]; then
+  jq -s . "$TMP_DIR"/entry-*.json > "$TMP_DIR/locales.json"
+else
+  echo "[]" > "$TMP_DIR/locales.json"
+fi
+
+printf '%s' "$PR_JSON" > "$TMP_DIR/pr.json"
+
 jq -n \
-  --argjson pr "$PR_JSON" \
-  --argjson locales "$LOCALES" \
-  --argjson en_before "$EN_BEFORE" \
+  --slurpfile pr "$TMP_DIR/pr.json" \
+  --slurpfile locales "$TMP_DIR/locales.json" \
+  --slurpfile en_before "$TMP_DIR/en_before.json" \
   --arg merge_base "$MERGE_BASE" \
   --arg source_locale "$SOURCE_LOCALE" \
   --arg locale_glob "$LOCALE_GLOB" \
@@ -131,25 +147,25 @@ jq -n \
     locale_glob: $locale_glob,
     merge_base: (if $merge_base == "" then null else $merge_base end),
     pr: {
-      number: $pr.number,
-      url: $pr.url,
-      title: $pr.title,
-      author: ($pr.author.login // ""),
-      is_draft: $pr.isDraft,
-      head_sha: $pr.headRefOid,
-      base_ref: $pr.baseRefName,
-      changed_files: [$pr.files[].path],
-      changes_requested: ([$pr.reviews[]? | select(.state == "CHANGES_REQUESTED")] | length),
+      number: $pr[0].number,
+      url: $pr[0].url,
+      title: $pr[0].title,
+      author: ($pr[0].author.login // ""),
+      is_draft: $pr[0].isDraft,
+      head_sha: $pr[0].headRefOid,
+      base_ref: $pr[0].baseRefName,
+      changed_files: [$pr[0].files[].path],
+      changes_requested: ([$pr[0].reviews[]? | select(.state == "CHANGES_REQUESTED")] | length),
       # A CheckRun reports .conclusion once finished and .status while running;
       # a StatusContext reports .state. An unfinished run must not normalise to
       # an empty string, or the policy reports a blank reason.
-      checks: [$pr.statusCheckRollup[]?
+      checks: [$pr[0].statusCheckRollup[]?
                | select(.__typename == "CheckRun" or .__typename == "StatusContext")
                | {name: (.name // .context // "check"),
                   state: ((.conclusion // .state // .status // "PENDING")
                           | if . == "" then "PENDING" else . end
                           | ascii_upcase)}]
     },
-    en_before: $en_before,
-    locales: $locales
+    en_before: $en_before[0],
+    locales: $locales[0]
   }'
