@@ -95,6 +95,13 @@ way machine translation breaks a string, and the cheapest to catch.
 Every check on the head commit has concluded successfully. Pending, failing, or
 cancelled fails the gate — an unfinished run is not evidence.
 
+One exception, and only one: the enforcing workflow's own check is excluded.
+It is a check on the PR it is judging, so it is always pending while it runs;
+counting it would deadlock every PR, since the gate could never go green. Its
+result *is* the verdict, not evidence for it. The excluded name is
+`PR_SELF_APPROVAL_SELF_CHECK` (default `Self-approval check`) — and a PR whose
+only check is that one still fails this gate, as having no CI at all.
+
 ### 7. Not a draft, no requested changes
 
 A draft PR, or one carrying a `CHANGES_REQUESTED` review, is `needs-human` by
