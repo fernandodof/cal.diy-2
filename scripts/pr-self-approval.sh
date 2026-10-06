@@ -182,8 +182,14 @@ if [[ "$EVIDENCE_OK" == true ]]; then
 fi
 
 # --- Gate 6: CI is green ----------------------------------------------------
-CHECK_SUMMARY="$(jq -r '
+# The enforcing workflow is itself a check on the PR it is judging, so it is
+# always PENDING while it runs. Counting it would deadlock every PR: the gate
+# could never go green. Its own result is the verdict, not evidence for it.
+SELF_CHECK_NAME="${PR_SELF_APPROVAL_SELF_CHECK:-Self-approval check}"
+
+CHECK_SUMMARY="$(jq -r --arg self "$SELF_CHECK_NAME" '
   .pr.checks
+  | map(select(.name != $self))
   | if length == 0 then "none"
     else (map(select(.state != "SUCCESS" and .state != "NEUTRAL" and .state != "SKIPPED"))
           | if length == 0 then "green"
