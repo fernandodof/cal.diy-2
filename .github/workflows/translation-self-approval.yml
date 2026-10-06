@@ -51,7 +51,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+        # GitHub runs `bash -e` by default, which would abort this step the moment
+        # the policy exits 1 — its normal way of saying needs-human — before a
+        # verdict could be written. `set +e` is load-bearing, not tidying.
+        shell: bash
         run: |
+          set +e
           set -uo pipefail
 
           ./scripts/pr-evidence.sh "$PR_NUMBER" > evidence.json || {
@@ -76,7 +81,10 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-          ./scripts/pr-self-approval.sh --evidence evidence.json || true
+          # Human-readable form in the log. The job's conclusion is decided by the
+          # final step, so this step exits 0 for both verdicts.
+          ./scripts/pr-self-approval.sh --evidence evidence.json
+          exit 0
 
       - name: Approve
         # Both conditions, deliberately: the control must have succeeded AND
