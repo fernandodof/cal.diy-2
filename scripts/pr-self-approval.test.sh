@@ -124,6 +124,19 @@ check "a failing check needs a human" "needs-human 1" \
 check "no checks at all needs a human" "needs-human 1" \
   "$(verdict "$(evidence "$CLEAN" '.pr.checks = []')")"
 
+# The enforcing workflow is a check on the PR it judges, so it is PENDING while
+# it runs. Counting it would deadlock every PR — the gate could never go green.
+check "the workflow's own pending check is ignored" "auto-approve 0" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.checks += [{name: "Self-approval check", state: "PENDING"}]')")"
+
+# Excluding it by name must not blind the gate to everything else.
+check "another pending check still needs a human" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.checks += [{name: "Self-approval check", state: "PENDING"}, {name: "Tests", state: "PENDING"}]')")"
+
+# A PR whose only check is the workflow itself has no real CI to speak of.
+check "only the self-check means no checks reported" "needs-human 1" \
+  "$(verdict "$(evidence "$CLEAN" '.pr.checks = [{name: "Self-approval check", state: "PENDING"}]')")"
+
 check "a draft needs a human" "needs-human 1" \
   "$(verdict "$(evidence "$CLEAN" '.pr.is_draft = true')")"
 
