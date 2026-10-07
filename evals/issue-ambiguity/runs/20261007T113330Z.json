@@ -1,0 +1,55 @@
+{
+  "run": "20261007T113330Z",
+  "model": "claude-haiku-4-5-20251001",
+  "cases": [
+    {
+      "id": "calcom-cal.com-29939",
+      "score": 0,
+      "reasoning": "No end state is stated; the issue asks a question ('is this possible?') but does not describe what success would look like or what the contributor should build toward.",
+      "human": 0,
+      "delta": 0
+    },
+    {
+      "id": "calcom-cal.com-29950",
+      "score": 2,
+      "reasoning": "Expected behaviour and reproduction are clear (smooth load without layout shift), but the root cause is unspecified, leaving open whether the fix involves CSS, layout animation, data fetching timing, or component structure—details that would change the implementation approach.",
+      "human": 1,
+      "delta": 1
+    },
+    {
+      "id": "calcom-cal.com-29986",
+      "score": 2,
+      "reasoning": "Expected behaviour is clear (persistent booking ID across reschedules available in Zapier, webhooks, API, and booking details), but scope is open on whether the existing UID field should be repurposed or a new field added, and on the exact lifecycle rules (what counts as a reschedule vs. a cancellation+rebooking).",
+      "human": 1,
+      "delta": 1
+    },
+    {
+      "id": "calcom-cal.com-30087",
+      "score": 3,
+      "reasoning": "Expected behaviour is clear (button should render with styles server-side to prevent layout shift on reload), reproduction is documented (visible on hard refresh across browsers), and scope is well-defined (the navbar CTA button's SSR styling and hydration state); a contributor could implement and verify the fix without clarification.",
+      "human": 1,
+      "delta": 2
+    },
+    {
+      "id": "calcom-cal.com-30121",
+      "score": 3,
+      "reasoning": "Expected behavior is explicit (calendar should be added, collections without supported-calendar-component-set should be treated as VEVENT-capable), reproduction steps are clear and specific, scope is well-defined (the CalDAV account addition flow), and acceptance criteria are pinned down (the calendar is added successfully).",
+      "human": 3,
+      "delta": 0
+    },
+    {
+      "id": "calcom-cal.com-30255",
+      "score": 2,
+      "reasoning": "Expected behaviour (searchable timezone picker in a sheet) and scope (search field + filtered list, optional country-name matching) are clear, but the exact matching algorithm and device-timezone pre-selection are open questions that review could settle.",
+      "human": 2,
+      "delta": 0
+    }
+  ],
+  "summary": {
+    "n": 6,
+    "exact": 3,
+    "within_1": 5,
+    "parse_failures": 0,
+    "mean_abs_error": 0.6666666666666666
+  }
+}
