@@ -103,8 +103,17 @@ run_check() {
 
 CHECKS="$(
   {
-    if [[ ${#CHANGED_FILES[@]} -gt 0 ]]; then
-      run_check biome always yarn biome check --files-ignore-unknown=true --no-errors-on-unmatched "${CHANGED_FILES[@]}"
+    # Only @calcom/web has a type-check task, and it compiles what it imports,
+    # so it is the one that covers changes in packages/lib, features and trpc.
+    run_check type-check always yarn turbo run type-check --filter=@calcom/web
+    # Biome exits 0 having checked nothing when no changed file is one it reads,
+    # so pass it only files it reads; with none, the check did not run.
+    BIOME_FILES=()
+    for path in ${CHANGED_FILES[@]+"${CHANGED_FILES[@]}"}; do
+      [[ "$path" =~ \.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|jsonc|css)$ ]] && BIOME_FILES+=("$path")
+    done
+    if [[ ${#BIOME_FILES[@]} -gt 0 ]]; then
+      run_check biome always yarn biome check --no-errors-on-unmatched "${BIOME_FILES[@]}"
     else
       run_check biome always
     fi

@@ -65,6 +65,17 @@ mkdir -p "$WORKTREE_DIR"
 git -C "$REPO_ROOT" worktree add --quiet -b "$BRANCH" "$WORKTREE" "origin/$BASE_REF"
 echo "issue-to-pr: worktree $WORKTREE on $BRANCH" >&2
 
+# The worktree needs its own install. Workspace packages are linked relatively
+# (node_modules/@calcom/* -> ../../packages/*), so borrowing this checkout's
+# node_modules would resolve them here, and the evidence would test the wrong
+# code. Reusing this checkout's cache keeps the install offline.
+echo "issue-to-pr: installing dependencies in the worktree" >&2
+(cd "$WORKTREE" && YARN_CACHE_FOLDER="$REPO_ROOT/.yarn/cache" yarn install --immutable) \
+  > "$RUN_DIR/install.log" 2>&1 || {
+  echo "issue-to-pr: yarn install failed in $WORKTREE; see $RUN_DIR/install.log" >&2
+  exit 2
+}
+
 # --- agent session ----------------------------------------------------------
 TASK="$(jq -r --arg base "$BASE_REF" '
   "Run /implement-task on GitHub issue #\(.number): \(.title)\n\n\(.url)\n\n"

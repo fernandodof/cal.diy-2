@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -30,13 +30,7 @@
    - Verified by: `./scripts/issue-to-pr.test.sh` asserting the flags fake `claude`
      received; `./scripts/headless-task.sh` with no new flags behaves as before
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-1. **Worktree builds and type-checks for real** — proves the evidence tests the
+4. **Worktree builds and type-checks for real** — proves the evidence tests the
    worktree's code, not the main checkout's
    - `scripts/issue-to-pr.sh` (`yarn install --immutable` with
      `YARN_CACHE_FOLDER` on the main checkout's cache),
@@ -45,6 +39,13 @@
    - Verified by: `./scripts/issue-to-pr.test.sh` (fake `yarn` records the install
      and the type-check call), then one real
      `./scripts/implement-evidence.sh` run against a worktree of this branch
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 
 ## Session Notes
 
@@ -62,3 +63,9 @@
 - Slice 3 done: the agent session gets an explicit allow list and a deny list
   (`git push`, `gh pr`); `headless-task.sh` without the new flags is unchanged.
   Next: slice 4, real install and type-check in the worktree.
+- Slice 4 done: the worktree installs from this checkout's cache (47s real run;
+  `node_modules/@calcom/lib -> ../../packages/lib` resolves inside the worktree),
+  and the collector always runs the `@calcom/web` type-check (confirmed real via
+  `--dry=json`: `tsc --pretty --noEmit`; real run exit 0 in 51s). The real run
+  showed biome exiting 0 after checking 0 files when nothing changed is a file it
+  reads; the collector now records that as not run (`null`, red).

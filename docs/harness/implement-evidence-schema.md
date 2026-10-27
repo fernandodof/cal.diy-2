@@ -39,6 +39,13 @@ copied from what the agent said about its own work. Facts it cannot reach are
   },
   "checks": [
     {
+      "name": "type-check",
+      "command": "yarn turbo run type-check --filter=@calcom/web",
+      "source": "always",
+      "exit_code": 0,
+      "log_tail": "…"
+    },
+    {
       "name": "biome",
       "command": "yarn biome check …",
       "source": "always",                // run on every branch, whatever the plan says
@@ -52,7 +59,7 @@ copied from what the agent said about its own work. Facts it cannot reach are
 ## Field notes
 
 **`checks[].exit_code`** is `null` when there was nothing to run the check on —
-biome with no changed files, for instance. That is recorded rather than omitted
+biome when no changed file is one biome reads, for instance. That is recorded rather than omitted
 so the gap is visible in the verdict.
 
 **`agent`** is a fact about the session, not evidence about the code. A session

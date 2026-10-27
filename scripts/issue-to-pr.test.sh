@@ -67,6 +67,9 @@ case "${FAKE_CLAUDE:-commit}" in
   commit|fail)
     echo "export const x = 1;" > thing.ts
     git add thing.ts && git -c user.email=a@b -c user.name=agent commit --quiet -m "feat: thing" ;;
+  docs)
+    echo "# notes" > notes.md
+    git add notes.md && git -c user.email=a@b -c user.name=agent commit --quiet -m "docs: notes" ;;
 esac
 if [[ "${FAKE_CLAUDE:-commit}" == "fail" ]]; then
   echo '{"is_error": true, "subtype": "error_max_turns", "num_turns": 40, "total_cost_usd": 1}'
@@ -131,6 +134,13 @@ check "the body reports a green verdict" "1" "$(grep -c '^\*\*Verdict: green\*\*
 check "biome was re-run by the harness on the changed file" "1" \
   "$(grep -c '^biome check .*thing.ts cwd='"$SB/worktrees/issue-7" "$SB/log/yarn.log")"
 check "the evidence records the commit" "1" "$(jq '.commits' "$SB/runs/issue-7/evidence.json")"
+check "the worktree got its own install from this checkout's cache" "1" \
+  "$(grep -c "^install --immutable cwd=$SB/worktrees/issue-7 cache=$SB/repo/.yarn/cache$" "$SB/log/yarn.log")"
+check "the install ran before the agent" "install" "$(head -1 "$SB/log/yarn.log" | cut -d' ' -f1)"
+check "type-check was re-run by the harness in the worktree" "1" \
+  "$(grep -c "^turbo run type-check --filter=@calcom/web cwd=$SB/worktrees/issue-7 " "$SB/log/yarn.log")"
+check "the evidence carries both always-on checks" "type-check,biome" \
+  "$(jq -r '[.checks[].name] | join(",")' "$SB/runs/issue-7/evidence.json")"
 check "a second run refuses the existing branch" "2" "$(run "$SB")"
 check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
@@ -145,6 +155,24 @@ check "the red PR is labelled agent:needs-help" "1" \
 check "the body names the failed check" "1" \
   "$(grep -c '^- check: biome exited 1$' "$SB/runs/issue-7/pr-body.md")"
 check "the failing log reaches the body" "1" "$(grep -cx 'boom' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a failing type-check exits 1" "1" "$(run "$SB" FAKE_YARN_FAIL="type-check")"
+check "the body names the failed type-check" "1" \
+  "$(grep -c '^- check: type-check exited 1$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a change biome cannot read exits 1" "1" "$(run "$SB" FAKE_CLAUDE=docs)"
+check "biome is recorded as not run, not as passed" "null" \
+  "$(jq '.checks[] | select(.name == "biome") | .exit_code' "$SB/runs/issue-7/evidence.json")"
+check "biome was never invoked on it" "0" "$(grep -c '^biome' "$SB/log/yarn.log" || true)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a failed install is an environment error" "2" "$(run "$SB" FAKE_YARN_FAIL="install")"
+check "the agent never starts without dependencies" "no" "$([[ -f "$SB/log/claude.args" ]] && echo yes || echo no)"
 rm -rf "$SB"
 
 SB="$(sandbox)"
