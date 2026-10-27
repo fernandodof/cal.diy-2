@@ -51,11 +51,20 @@ SCHEMA="$(jq -r '.schema // ""' <<<"$EVIDENCE")"
   exit 2
 }
 
-# The whole policy. Each rule returns the reasons the evidence fails it.
+# The whole policy. Each rule returns the reasons the evidence fails it. Missing
+# evidence fails closed: a fact the collector could not reach is not a pass.
 POLICY='
-  [ (.checks // [])[]
-    | select(.exit_code != 0)
-    | "check: \(.name) exited \(.exit_code)" ]'
+  [ (if .merge_base == null then "evidence: the merge base with \(.base_ref) could not be resolved" else empty end),
+    (if .diff == null then "evidence: the diff against the base is unavailable" else empty end),
+    (if .agent == null then "evidence: the agent session left no summary"
+     elif .agent.status != "completed" then "agent: the session ended \(.agent.status // "unknown")"
+     else empty end),
+    (if (.commits // 0) == 0 then "commits: the branch has no commits beyond the base" else empty end),
+    (if ((.checks // []) | length) == 0 then "checks: none were run" else empty end),
+    ( (.checks // [])[]
+      | if .exit_code == null then "check: \(.name) did not run"
+        elif .exit_code != 0 then "check: \(.name) exited \(.exit_code)"
+        else empty end ) ]'
 
 # The block the PR body carries. The markers let a re-run replace it in place.
 RENDER='

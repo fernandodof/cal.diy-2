@@ -122,6 +122,37 @@ check "biome was re-run by the harness on the changed file" "1" \
   "$(grep -c '^biome check .*thing.ts cwd='"$SB/worktrees/issue-7" "$SB/log/yarn.log")"
 check "the evidence records the commit" "1" "$(jq '.commits' "$SB/runs/issue-7/evidence.json")"
 check "a second run refuses the existing branch" "2" "$(run "$SB")"
+check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
+check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+# --- red path ---------------------------------------------------------------
+SB="$(sandbox)"
+check "a failing check exits 1" "1" "$(run "$SB" FAKE_YARN_FAIL="biome check")"
+check "a red run still opens a draft PR" "1" "$(grep -c '^pr create --draft ' "$SB/log/gh.log")"
+check "the red PR is labelled agent:needs-help" "1" \
+  "$(grep -c '^pr create .*--label agent:needs-help' "$SB/log/gh.log")"
+check "the body names the failed check" "1" \
+  "$(grep -c '^- check: biome exited 1$' "$SB/runs/issue-7/pr-body.md")"
+check "the failing log reaches the body" "1" "$(grep -cx 'boom' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a session that hit its limit exits 1" "1" "$(run "$SB" FAKE_CLAUDE=fail)"
+check "its commits still reach a draft PR" "1" "$(grep -c '^pr create --draft .*--label agent:needs-help' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a run with no commits exits 1" "1" "$(run "$SB" FAKE_CLAUDE=nothing)"
+check "it opens no PR" "0" "$(grep -c '^pr create' "$SB/log/gh.log" || true)"
+check "it pushes nothing" "no" \
+  "$(git -C "$SB/origin.git" rev-parse --verify --quiet refs/heads/agent/issue-7 >/dev/null && echo yes || echo no)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" FAKE_EXISTING_LABELS="agent:implement agent:needs-help" >/dev/null
+check "existing labels are left alone" "label create agent:needs-clarification" \
+  "$(grep '^label create' "$SB/log/gh.log" | cut -d' ' -f1-3)"
 rm -rf "$SB"
 
 echo

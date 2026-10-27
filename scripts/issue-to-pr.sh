@@ -92,6 +92,27 @@ set -e
 [[ $VERDICT_STATUS -le 1 ]] || exit 2
 VERDICT="$(jq -r '.verdict' "$RUN_DIR/verdict.json")"
 
+# A branch with nothing on it cannot back a PR. The verdict already says why;
+# say it here too, since there is no PR to carry it.
+if [[ "$(jq -r '.commits // 0' "$RUN_DIR/evidence.json")" -eq 0 ]]; then
+  echo "issue-to-pr: red — the agent made no commits, so there is no PR to open" >&2
+  jq -r '.reasons[] | "  - " + .' "$RUN_DIR/verdict.json" >&2
+  exit 1
+fi
+
+# --- labels -----------------------------------------------------------------
+# Created on first use, so a fresh fork needs no setup. Existing labels are left
+# as they are: someone may have recoloured or described them.
+EXISTING_LABELS="$(gh label list --limit 200 --json name --jq '.[].name')"
+while IFS='|' read -r name color description; do
+  grep -qxF "$name" <<<"$EXISTING_LABELS" && continue
+  gh label create "$name" --color "$color" --description "$description" >/dev/null
+done <<'LABELS'
+agent:implement|5319E7|Hand this issue to the issue-to-PR harness
+agent:needs-clarification|FBCA04|Too ambiguous for the harness to implement as written
+agent:needs-help|D93F0B|The harness opened this PR, but its evidence is red
+LABELS
+
 # --- pull request -----------------------------------------------------------
 git -C "$WORKTREE" push --quiet -u origin "$BRANCH"
 
@@ -107,9 +128,15 @@ git -C "$WORKTREE" push --quiet -u origin "$BRANCH"
   echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 } > "$RUN_DIR/pr-body.md"
 
+LABEL_ARGS=()
+while IFS= read -r label; do
+  [[ -n "$label" ]] && LABEL_ARGS+=(--label "$label")
+done < <(jq -r '.labels[]' "$RUN_DIR/verdict.json")
+
 PR_URL="$(gh pr create --draft --base "$BASE_REF" --head "$BRANCH" \
   --title "$(jq -r '.title' "$RUN_DIR/issue.json")" \
-  --body-file "$RUN_DIR/pr-body.md")"
+  --body-file "$RUN_DIR/pr-body.md" \
+  ${LABEL_ARGS[@]+"${LABEL_ARGS[@]}"})"
 
 echo "issue-to-pr: $VERDICT — $PR_URL" >&2
 echo "$PR_URL"
