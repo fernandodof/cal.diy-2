@@ -74,10 +74,21 @@ TASK="$(jq -r --arg base "$BASE_REF" '
   + "and do not open a pull request — the harness does both.\n\n---\n\n"
   + (.body // "(no description)")' "$RUN_DIR/issue.json")"
 
+# What the agent may run: enough to implement and verify its own work, which the
+# #11 run was denied. Pushing and opening PRs are the harness's, and the deny list
+# keeps them that way even if the allow list or permission mode is loosened.
+ALLOWED_TOOLS="Read,Edit,Write,Glob,Grep,Skill"
+ALLOWED_TOOLS+=",Bash(yarn test:*),Bash(yarn biome:*),Bash(yarn turbo run type-check:*)"
+ALLOWED_TOOLS+=",Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*)"
+ALLOWED_TOOLS+=",Bash(ls:*),Bash(cat:*),Bash(grep:*),Bash(find:*),Bash(gh issue view:*)"
+DISALLOWED_TOOLS="Bash(git push:*),Bash(gh pr:*)"
+
 # The agent's own verdict on its session goes into the evidence as a fact; a
 # failed session is judged there, not here.
 printf '%s' "$TASK" | "$REPO_ROOT/scripts/headless-task.sh" \
-  --run-id "$RUN_ID" --workdir "$WORKTREE" - >/dev/null || true
+  --run-id "$RUN_ID" --workdir "$WORKTREE" \
+  --allowed-tools "$ALLOWED_TOOLS" --disallowed-tools "$DISALLOWED_TOOLS" \
+  - >/dev/null || true
 
 # --- evidence and verdict ---------------------------------------------------
 "$REPO_ROOT/scripts/implement-evidence.sh" \

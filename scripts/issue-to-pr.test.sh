@@ -109,6 +109,16 @@ check "it prints the PR URL" "https://example.test/pull/99" "$(cat "$SB/log/stdo
 check "the agent ran inside the worktree" "$SB/worktrees/issue-7" "$(cat "$SB/log/claude.cwd")"
 check "the agent was told not to push or open a PR" "yes" \
   "$(grep -q 'do not push and do not open a pull request' "$SB/log/claude.stdin" && echo yes || echo no)"
+# The prompt is a request; the permission flags are the enforcement.
+flag_value() { grep -A1 -xF -- "$1" "$SB/log/claude.args" | tail -1; }
+check "pushing is denied to the agent" "yes" \
+  "$(flag_value --disallowedTools | tr ',' '\n' | grep -qxF 'Bash(git push:*)' && echo yes || echo no)"
+check "every gh pr command is denied to the agent" "yes" \
+  "$(flag_value --disallowedTools | tr ',' '\n' | grep -qxF 'Bash(gh pr:*)' && echo yes || echo no)"
+check "the agent may run the tests #11 was denied" "yes" \
+  "$(flag_value --allowedTools | tr ',' '\n' | grep -qxF 'Bash(yarn test:*)' && echo yes || echo no)"
+check "nothing that pushes or opens a PR is allowed" "0" \
+  "$(flag_value --allowedTools | tr ',' '\n' | grep -cE '^Bash\((git push|gh pr|git:|gh:)' || true)"
 check "the branch reached origin" "yes" \
   "$(git -C "$SB/origin.git" rev-parse --verify --quiet refs/heads/agent/issue-7 >/dev/null && echo yes || echo no)"
 check "the user's checkout stayed on main" "main" "$(git -C "$SB/repo" rev-parse --abbrev-ref HEAD)"
@@ -153,6 +163,18 @@ SB="$(sandbox)"
 run "$SB" FAKE_EXISTING_LABELS="agent:implement agent:needs-help" >/dev/null
 check "existing labels are left alone" "label create agent:needs-clarification" \
   "$(grep '^label create' "$SB/log/gh.log" | cut -d' ' -f1-3)"
+rm -rf "$SB"
+
+# --- headless-task.sh on its own --------------------------------------------
+# Callers that pass none of the new flags must get the session they always did.
+SB="$(sandbox)"
+(cd "$SB/repo" && PATH="$SB/bin:$PATH" FAKE_LOG="$SB/log" FAKE_CLAUDE=nothing \
+  HEADLESS_TASK_OUT_DIR="$SB/runs" ./scripts/headless-task.sh "a task" >/dev/null 2>&1)
+check "without --workdir the session runs in the repo" "$(cd "$SB/repo" && pwd)" "$(cat "$SB/log/claude.cwd")"
+check "without --workdir the repo is the added dir" "$(cd "$SB/repo" && pwd)" \
+  "$(grep -A1 -xF -- --add-dir "$SB/log/claude.args" | tail -1)"
+check "without tool flags none are passed" "0" \
+  "$(grep -cE '^--(allowed|disallowed)Tools$' "$SB/log/claude.args" || true)"
 rm -rf "$SB"
 
 echo
