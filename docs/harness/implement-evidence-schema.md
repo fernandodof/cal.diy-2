@@ -59,8 +59,9 @@ copied from what the agent said about its own work. Facts it cannot reach are
 ## Field notes
 
 **`checks[].exit_code`** is `null` when there was nothing to run the check on —
-biome when no changed file is one biome reads, for instance. That is recorded rather than omitted
-so the gap is visible in the verdict.
+biome when no changed file is one biome reads, for instance, where biome itself
+would exit 0 having checked nothing. That is recorded rather than omitted so the
+gap is visible in the verdict.
 
 **`agent`** is a fact about the session, not evidence about the code. A session
 that hit its turn limit can still leave correct commits; the verdict marks it red
