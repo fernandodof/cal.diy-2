@@ -76,15 +76,7 @@ echo "issue-to-pr: installing dependencies in the worktree" >&2
   exit 2
 }
 
-# --- agent session ----------------------------------------------------------
-TASK="$(jq -r --arg base "$BASE_REF" '
-  "Run /implement-task on GitHub issue #\(.number): \(.title)\n\n\(.url)\n\n"
-  + "You are running headlessly; nobody will answer a question. Treat every "
-  + "gate as approved, the base branch is `\($base)`, and you are already on the "
-  + "working branch. Commit each slice. Stop after the last commit: do not push "
-  + "and do not open a pull request — the harness does both.\n\n---\n\n"
-  + (.body // "(no description)")' "$RUN_DIR/issue.json")"
-
+# --- agent sessions ---------------------------------------------------------
 # What the agent may run: enough to implement and verify its own work, which the
 # #11 run was denied. Pushing and opening PRs are the harness's, and the deny list
 # keeps them that way even if the allow list or permission mode is loosened.
@@ -94,17 +86,52 @@ ALLOWED_TOOLS+=",Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git ad
 ALLOWED_TOOLS+=",Bash(ls:*),Bash(cat:*),Bash(grep:*),Bash(find:*),Bash(gh issue view:*)"
 DISALLOWED_TOOLS="Bash(git push:*),Bash(gh pr:*)"
 
-# The agent's own verdict on its session goes into the evidence as a fact; a
-# failed session is judged there, not here.
-printf '%s' "$TASK" | "$REPO_ROOT/scripts/headless-task.sh" \
-  --run-id "$RUN_ID" --workdir "$WORKTREE" \
-  --allowed-tools "$ALLOWED_TOOLS" --disallowed-tools "$DISALLOWED_TOOLS" \
-  - >/dev/null || true
+ISSUE_URL="$(jq -r '.url' "$RUN_DIR/issue.json")"
+SPEC=""
+
+# The spec folder is the agent's choice — Phase 1 may extend an existing one —
+# so it is found from what the branch added, not predicted. More than one
+# candidate is as good as none.
+resolve_spec() {
+  local found
+  found="$(git -C "$WORKTREE" diff --name-only --diff-filter=A "origin/$BASE_REF" HEAD -- 'specs/*/gates/1-research.md')"
+  [[ -n "$found" && "$(wc -l <<<"$found")" -eq 1 ]] && dirname "$(dirname "$found")"
+}
+
+# One session per phase, each reading only the previous phase's handoff file.
+# Every session's summary goes into the evidence as a fact; whether the sequence
+# should have stopped is judged there, not here.
+: > "$RUN_DIR/phases.jsonl"
+n=0
+for phase in 1-research 2-plan 3-implement; do
+  n=$((n + 1))
+  TASK="/implement-task --headless --phase $n --base $BASE_REF $ISSUE_URL${SPEC:+ --spec $SPEC}"
+  if [[ $n -eq 1 ]]; then
+    TASK+="$(jq -r '"\n\n# Issue #\(.number): \(.title)\n\n" + (.body // "(no description)")' "$RUN_DIR/issue.json")"
+  fi
+  echo "issue-to-pr: phase $phase" >&2
+  printf '%s' "$TASK" | "$REPO_ROOT/scripts/headless-task.sh" \
+    --run-id "$RUN_ID/$phase" --workdir "$WORKTREE" \
+    --allowed-tools "$ALLOWED_TOOLS" --disallowed-tools "$DISALLOWED_TOOLS" \
+    - >/dev/null 2>&1 || true
+
+  [[ $n -eq 1 ]] && SPEC="$(resolve_spec || true)"
+  OUTCOME=""
+  if [[ -n "$SPEC" && -f "$WORKTREE/$SPEC/gates/$phase.md" ]]; then
+    [[ "$(head -1 "$WORKTREE/$SPEC/gates/$phase.md")" =~ ^Outcome:\ (continue|blocked)$ ]] \
+      && OUTCOME="${BASH_REMATCH[1]}"
+  fi
+  jq -c --arg phase "$phase" --arg outcome "$OUTCOME" \
+    '{phase: $phase, status, turns, cost_usd, outcome: (if $outcome == "" then null else $outcome end)}' \
+    "$RUN_DIR/$phase/summary.json" >> "$RUN_DIR/phases.jsonl" 2>/dev/null \
+    || jq -nc --arg phase "$phase" '{phase: $phase, status: null, turns: null, cost_usd: null, outcome: null}' >> "$RUN_DIR/phases.jsonl"
+done
+jq -s . "$RUN_DIR/phases.jsonl" > "$RUN_DIR/phases.json"
 
 # --- evidence and verdict ---------------------------------------------------
 "$REPO_ROOT/scripts/implement-evidence.sh" \
   --worktree "$WORKTREE" --base "$BASE_REF" \
-  --issue-json "$RUN_DIR/issue.json" --agent-summary "$RUN_DIR/summary.json" \
+  --issue-json "$RUN_DIR/issue.json" --phases "$RUN_DIR/phases.json" ${SPEC:+--spec "$SPEC"} \
   > "$RUN_DIR/evidence.json"
 
 set +e
@@ -141,10 +168,17 @@ git -C "$WORKTREE" push --quiet -u origin "$BRANCH"
 {
   echo "Closes #$ISSUE"
   echo
-  echo "## Agent summary"
+  cat "$WORKTREE/.claude/headless-runs/pr-body.md" 2>/dev/null \
+    || echo "_The agent left no PR body draft; the evidence below is all there is._"
   echo
-  cat "$RUN_DIR/result.md" 2>/dev/null || echo "(the agent session left no summary)"
-  echo
+  if [[ -n "$SPEC" ]]; then
+    echo "### Gates"
+    echo
+    for gate in "$WORKTREE/$SPEC"/gates/*.md; do
+      [[ -f "$gate" ]] && echo "- \`$SPEC/gates/$(basename "$gate")\` — $(head -1 "$gate")"
+    done
+    echo
+  fi
   jq -r '.evidence_block' "$RUN_DIR/verdict.json"
   echo
   echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"

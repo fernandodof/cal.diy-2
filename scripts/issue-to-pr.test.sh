@@ -57,21 +57,40 @@ case "$1 $2" in
 esac
 FAKE
 
-  # claude: records its flags and stdin, then acts out FAKE_CLAUDE in its cwd.
+  # claude: records its flags and stdin, then acts out the phase it was asked to
+  # run, in its cwd. FAKE_CLAUDE picks what Phase 3 commits (commit, docs, fail,
+  # or nothing at all in any phase); FAKE_OUTCOME_<n>, FAKE_NO_GATE=<n> and
+  # FAKE_FAIL_PHASE=<n> bend a single phase.
   cat > "$sb/bin/claude" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$FAKE_LOG/claude.args"
 cat > "$FAKE_LOG/claude.stdin"
 pwd > "$FAKE_LOG/claude.cwd"
-case "${FAKE_CLAUDE:-commit}" in
-  commit|fail)
-    echo "export const x = 1;" > thing.ts
-    git add thing.ts && git -c user.email=a@b -c user.name=agent commit --quiet -m "feat: thing" ;;
-  docs)
-    echo "# notes" > notes.md
-    git add notes.md && git -c user.email=a@b -c user.name=agent commit --quiet -m "docs: notes" ;;
-esac
-if [[ "${FAKE_CLAUDE:-commit}" == "fail" ]]; then
+# The prompt may not end in a newline; give each call its own line regardless.
+printf '%s\n' "$(head -1 "$FAKE_LOG/claude.stdin")" >> "$FAKE_LOG/claude.calls"
+phase="$(head -1 "$FAKE_LOG/claude.stdin" | sed -n 's/.*--phase \([0-9]\).*/\1/p')"
+mode="${FAKE_CLAUDE:-commit}"
+outcome_var="FAKE_OUTCOME_${phase:-0}"
+gate() {
+  [[ "${FAKE_NO_GATE:-}" == "$phase" ]] && return
+  printf 'Outcome: %s\n\nphase %s summary\n' "${!outcome_var:-continue}" "$phase" > "specs/thing/gates/$1.md"
+}
+if [[ -n "$phase" && "$mode" != nothing ]]; then
+  mkdir -p specs/thing/gates
+  case "$phase" in
+    1) echo "# design" > specs/thing/design.md; gate 1-research ;;
+    2) echo "# plan" > specs/thing/implementation.md; gate 2-plan ;;
+    3)
+      if [[ "$mode" == docs ]]; then echo "# notes" > notes.md; else echo "export const x = 1;" > thing.ts; fi
+      gate 3-implement
+      mkdir -p .claude/headless-runs
+      printf '## What changed\n\nThe agent draft.\n' > .claude/headless-runs/pr-body.md ;;
+  esac
+  # Everything but the PR body draft, which headless.md says is never committed.
+  git add -A -- . ':!.claude'
+  git -c user.email=a@b -c user.name=agent commit --quiet -m "phase $phase"
+fi
+if [[ "${FAKE_FAIL_PHASE:-}" == "$phase" || ( "$mode" == fail && "$phase" == 3 ) ]]; then
   echo '{"is_error": true, "subtype": "error_max_turns", "num_turns": 40, "total_cost_usd": 1}'
 else
   echo '{"is_error": false, "subtype": "success", "result": "Did the thing.", "num_turns": 3, "total_cost_usd": 0.1}'
@@ -110,8 +129,12 @@ SB="$(sandbox)"
 check "a clean run exits 0" "0" "$(run "$SB")"
 check "it prints the PR URL" "https://example.test/pull/99" "$(cat "$SB/log/stdout")"
 check "the agent ran inside the worktree" "$SB/worktrees/issue-7" "$(cat "$SB/log/claude.cwd")"
-check "the agent was told not to push or open a PR" "yes" \
-  "$(grep -q 'do not push and do not open a pull request' "$SB/log/claude.stdin" && echo yes || echo no)"
+check "three phase sessions ran in order" "1 2 3" \
+  "$(sed -n 's/.*--headless --phase \([0-9]\).*/\1/p' "$SB/log/claude.calls" | xargs)"
+check "phase 1 is given the issue, not a spec" "no" \
+  "$(head -1 "$SB/log/claude.calls" | grep -q -- --spec && echo yes || echo no)"
+check "phases 2 and 3 are given the spec Phase 1 added" "2" \
+  "$(grep -c -- '--base main https://example.test/issues/7 --spec specs/thing$' "$SB/log/claude.calls")"
 # The prompt is a request; the permission flags are the enforcement.
 flag_value() { grep -A1 -xF -- "$1" "$SB/log/claude.args" | tail -1; }
 check "pushing is denied to the agent" "yes" \
@@ -133,7 +156,13 @@ check "the body carries the evidence markers" "2" \
 check "the body reports a green verdict" "1" "$(grep -c '^\*\*Verdict: green\*\*$' "$BODY")"
 check "biome was re-run by the harness on the changed file" "1" \
   "$(grep -c '^biome check .*thing.ts cwd='"$SB/worktrees/issue-7" "$SB/log/yarn.log")"
-check "the evidence records the commit" "1" "$(jq '.commits' "$SB/runs/issue-7/evidence.json")"
+check "the evidence records one commit per phase" "3" "$(jq '.commits' "$SB/runs/issue-7/evidence.json")"
+check "the evidence records the spec and the three phases" "specs/thing 3" \
+  "$(jq -r '"\(.spec) \(.phases | length)"' "$SB/runs/issue-7/evidence.json")"
+check "the body opens with the agent's draft" "1" "$(grep -c '^The agent draft\.$' "$BODY")"
+check "the body links every gate file" "3" "$(grep -c '^- `specs/thing/gates/.*` — Outcome: continue$' "$BODY")"
+check "the draft comes before the evidence" "yes" \
+  "$([[ $(grep -n 'The agent draft' "$BODY" | cut -d: -f1) -lt $(grep -n 'evidence:start' "$BODY" | cut -d: -f1) ]] && echo yes || echo no)"
 check "the worktree got its own install from this checkout's cache" "1" \
   "$(grep -c "^install --immutable cwd=$SB/worktrees/issue-7 cache=$SB/repo/.yarn/cache$" "$SB/log/yarn.log")"
 check "the install ran before the agent" "install" "$(head -1 "$SB/log/yarn.log" | cut -d' ' -f1)"

@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
 
@@ -40,14 +40,6 @@
      and the type-check call), then one real
      `./scripts/implement-evidence.sh` run against a worktree of this branch
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: headless mode, one session per phase (#27).
-
 5. **Three phases, three sessions, to a PR from the agent's draft** — proves the
    harness runs Research → Plan → Implement as separate headless sessions, each
    leaving a committed gate file, and opens the PR with the skill's own body
@@ -58,6 +50,15 @@ Increment: headless mode, one session per phase (#27).
      — three sessions in order, each with `--headless --phase <n>`, phases 2–3
      given the spec path, body holds the draft, the gate links and the block;
      `git diff main -- .claude/skills/implement-task/phases/` is empty
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+Increment: headless mode, one session per phase (#27).
+
 6. **A stopped sequence is red, and says where it stopped** — proves a failed
    session, a missing gate file or `Outcome: blocked` ends the sequence and
    reaches the PR as red evidence
@@ -95,3 +96,8 @@ Increment: headless mode, one session per phase (#27).
   reads; the collector now records that as not run (`null`, red).
 - #27 planned on `feat/implement-task-headless`, cut from `origin/main` after #34
   merged. Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 5 done: three headless sessions in order, spec folder found from the
+  added `gates/1-research.md`, PR body = agent draft + gate links + evidence (46
+  orchestrator checks). The collector's `--agent-summary` became `--phases` and
+  `--spec`, with `agent` now the sum, so part of slice 6's evidence work landed
+  here. Next: slice 6, stop conditions, verdict reasons, schema doc.

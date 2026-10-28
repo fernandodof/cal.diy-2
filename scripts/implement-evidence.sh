@@ -7,7 +7,7 @@
 #
 # Usage:
 #   ./scripts/implement-evidence.sh --worktree <dir> --base main \
-#     --issue-json issue.json --agent-summary summary.json
+#     --issue-json issue.json --phases phases.json [--spec specs/<slug>]
 #
 # Exit codes: 0 = evidence collected, 2 = bad usage/environment.
 #
@@ -18,7 +18,8 @@ set -euo pipefail
 WORKTREE=""
 BASE_REF=""
 ISSUE_JSON=""
-AGENT_SUMMARY=""
+PHASES_FILE=""
+SPEC=""
 LOG_TAIL_LINES=40
 
 usage() {
@@ -31,7 +32,8 @@ while [[ $# -gt 0 ]]; do
     --worktree) WORKTREE="${2:-}"; shift 2 ;;
     --base) BASE_REF="${2:-}"; shift 2 ;;
     --issue-json) ISSUE_JSON="${2:-}"; shift 2 ;;
-    --agent-summary) AGENT_SUMMARY="${2:-}"; shift 2 ;;
+    --phases) PHASES_FILE="${2:-}"; shift 2 ;;
+    --spec) SPEC="${2:-}"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "implement-evidence: unknown argument $1" >&2; usage ;;
   esac
@@ -70,9 +72,21 @@ if [[ -n "$MERGE_BASE" ]]; then
        changed_files: ($rows | map(.[2]))}')"
 fi
 
+# One record per phase session the harness started, in order, and their sum.
+# The sum is only "completed" when all three phases ran, completed and chose to
+# continue — anything less is a sequence that stopped short.
+PHASES="null"
 AGENT="null"
-if [[ -f "$AGENT_SUMMARY" ]] && jq -e 'type == "object"' "$AGENT_SUMMARY" >/dev/null 2>&1; then
-  AGENT="$(jq '{status, turns, cost_usd}' "$AGENT_SUMMARY")"
+if [[ -f "$PHASES_FILE" ]] && jq -e 'type == "array" and length > 0' "$PHASES_FILE" >/dev/null 2>&1; then
+  PHASES="$(jq . "$PHASES_FILE")"
+  AGENT="$(jq '{
+    status: (if any(.[]; .status == "failed") then "failed"
+             elif any(.[]; .outcome == "blocked") then "blocked"
+             elif length < 3 or any(.[]; .status != "completed" or .outcome != "continue") then "incomplete"
+             else "completed" end),
+    turns: (map(.turns // 0) | add),
+    cost_usd: (map(.cost_usd // 0) | add)
+  }' "$PHASES_FILE")"
 fi
 
 # Run one check in the worktree and print its record. A check that cannot be run
@@ -129,6 +143,8 @@ jq -n \
   --arg head_sha "$HEAD_SHA" \
   --argjson commits "$COMMITS" \
   --argjson agent "$AGENT" \
+  --argjson phases "$PHASES" \
+  --arg spec "$SPEC" \
   --argjson diff "$DIFF" \
   --argjson checks "$CHECKS" \
   '{
@@ -140,7 +156,9 @@ jq -n \
     branch: $branch,
     head_sha: $head_sha,
     commits: $commits,
+    spec: (if $spec == "" then null else $spec end),
     agent: $agent,
+    phases: $phases,
     diff: $diff,
     checks: $checks
   }'
