@@ -281,3 +281,114 @@ Six non-test files, inside `specs/README.md`'s 5–7.
   `git push` (`scripts/issue-to-pr.sh`, `DISALLOWED_TOOLS`; ADR in #24's design).
   #27's text says headless Phase 3 "commits, pushes"; this design keeps the push
   with the harness, as #24 settled.
+
+---
+
+# Increment: declared verification commands (#28)
+
+Tracks [#28](https://github.com/fernandodof/cal.diy-2/issues/28). Builds on #27
+(merged in #35).
+
+## Overview
+
+Phase 2 declares the commands that verify its slices, in a `## Verification`
+section of `implementation.md`. After the agent finishes, the collector runs each
+declared command that passes the allowlist, alongside the always-on type-check and
+biome. A command that fails the allowlist is never executed: it is recorded under
+`rejected_commands` and turns the verdict red. A missing or empty section is a
+`null` fact, so red too.
+
+## Problem Statement
+
+The always-on checks cannot know which tests prove *this* change. Phase 2 already
+names them per slice ("Verified by: `yarn test …`", `phases/2-plan.md:41-48`), but
+as prose the collector cannot run. #11 is the example of the gap: the issue named
+its verification command, and nothing ran it.
+
+## Technical Design
+
+### The section
+
+`specs/_templates/implementation.md` gains, after `## Next Steps`:
+
+````markdown
+## Verification
+
+```sh
+```
+````
+
+One command per line inside the first fenced block under the heading; blank lines
+and lines starting with `#` are ignored. Interactive Phase 2 may leave it empty —
+nothing reads it outside the harness, so the interactive flow is unchanged.
+`headless.md`'s Phase 2 bullet gains: list in it the `yarn test <path>` command
+for every test file the slices name.
+
+### The allowlist
+
+Exactly one shape: **`yarn test <path> [<path> …]`**, where each path
+
+- matches `^[A-Za-z0-9_@./-]+$` (no spaces, quotes, `$`, `;`, `|`, `&`, globs),
+- does not start with `-` or `/`, and has no `..` segment,
+- ends in `.test.ts` or `.test.tsx`.
+
+Nothing else is allowed — notably not `yarn turbo run type-check --filter=<pkg>`:
+turbo exits 0 for a task that does not exist (`phases/3-implement.md:61-64`), so a
+declared filter naming a package without the task would read as a pass. The
+`@calcom/web` type-check that does cover those packages is already always-on.
+
+**Never through a shell.** An accepted line is split on whitespace into an argv
+and passed to the same `run_check` the always-on checks use (`"$@"`, no `eval`,
+no `bash -c`), so even a line that slipped past the pattern could not expand,
+redirect or chain.
+
+### Evidence (`implement-evidence/1`, additive)
+
+- `checks[]` entries for declared commands carry `source: "declared"`, named
+  `test: <first path>` (+ ` (+N)` for more).
+- New `declared_commands`: the accepted lines, in order; `null` when the section
+  is missing, the block is absent or empty, or there is no spec.
+- New `rejected_commands`: `[{command, reason}]`, never executed; `[]` when none.
+
+### Verdict
+
+- `declared_commands == null` → red: "verification: Phase 2 declared no commands".
+- Each rejected command → red: "verification: rejected `<cmd>` (<reason>)".
+- Declared checks are judged like always-on ones (non-zero or null exit → red).
+- The block's Checks table already shows `source`; rejected commands get their own
+  list under it.
+
+### Files
+
+| File | Change |
+|---|---|
+| `specs/_templates/implementation.md` | the `## Verification` section |
+| `.claude/skills/implement-task/headless.md` | Phase 2 fills it |
+| `scripts/implement-evidence.sh` | parse, allowlist, run declared checks, two new fields |
+| `scripts/implement-verdict.sh` | two rules, rejected-commands list |
+| `docs/harness/implement-evidence-schema.md` | the new fields and the allowlist |
+| `scripts/implement-verdict.test.sh`, `scripts/issue-to-pr.test.sh` | fixtures; fake Phase 2 declares commands; a rejected command is proven not to run |
+
+Five non-test files, no orchestrator change: the collector already gets `--spec`.
+
+## Edge Cases
+
+- **A path that matches no test passes vitest.** `vitest.config.mts:119` sets
+  `passWithNoTests: true`; a real `yarn test packages/lib/does-not-exist.test.ts`
+  exits 0 with `No test files found, exiting with code 0`. So the collector
+  (a) checks every declared path is a file in the worktree before running —
+  any missing → the check is recorded `exit_code: null`, "not run: <path> does not
+  exist", and never executed; and (b) records `exit_code: null` when vitest exits 0
+  but its output says `No test files found` (a file that exists but no vitest
+  project includes). Both read as red. Like turbo's missing task, a check that
+  exits 0 without running is not a pass.
+- **Several fenced blocks** under the heading → only the first is read.
+- **Spec without `implementation.md`** (Phase 2 never ran) → `null`, red; it is
+  already red for the stopped phase, and both reasons are listed.
+- **The same command twice** runs once.
+
+## Out of Scope
+
+- Any command shape beyond `yarn test` — widening the allowlist is a policy change
+  for its own issue.
+- Acceptance criteria → tests mapping (#29), which consumes these results.

@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: complete
+## Status: planned
 
 ## Completed
 
@@ -69,6 +69,30 @@
 
 ## Next Steps
 
+Increment: declared verification commands (#28).
+
+7. **Declared tests run and reach the evidence** — proves a `yarn test` command
+   Phase 2 writes into `## Verification` is run by the collector, not the agent,
+   and shows in the PR as a `declared` check
+   - `specs/_templates/implementation.md`, `.claude/skills/implement-task/headless.md`,
+     `scripts/implement-evidence.sh` (parse the first fenced block, the `yarn test`
+     allowlist, run as argv, `declared_commands`), `scripts/implement-verdict.sh`
+     (`declared_commands: null` is red)
+   - Verified by: `./scripts/issue-to-pr.test.sh` — fake Phase 2 declares a test the
+     fake Phase 3 adds; fake `yarn` records it run in the worktree; evidence has a
+     `declared` check; a Phase 2 that declares nothing is red; and
+     `./scripts/implement-verdict.test.sh` for the null rule
+8. **Commands that would not really verify anything are red** — proves rejected
+   commands never execute, and a declared test that matches nothing is not a pass
+   - `scripts/implement-evidence.sh` (`rejected_commands` with reasons; missing
+     path and `No test files found` → `exit_code: null`), `scripts/implement-verdict.sh`
+     (one reason per rejection, rejected list in the block),
+     `docs/harness/implement-evidence-schema.md`
+   - Verified by: `./scripts/issue-to-pr.test.sh` — a declared
+     `yarn test a.test.ts; touch pwned` and a `curl …` line are rejected and
+     `pwned` never appears; a missing path is never run; fake `yarn` printing
+     `No test files found` with exit 0 is red — and verdict fixtures for each
+
 ## Session Notes
 
 - Base branch: `main` (confirmed at the Phase 2 gate). Working branch
@@ -106,3 +130,5 @@
   `FAKE_FAIL_PHASE` and failed, and `set -e` ended the script. The check counts
   quoted for slice 5 were real, but the three `headless-task.sh` checks did not
   run. Fixed in the fake; both suites now exit 0.
+- #28 planned on `feat/declared-verification`, cut from `origin/main` after #35
+  merged. Base branch: `main` (confirmed at the Phase 2 gate).
