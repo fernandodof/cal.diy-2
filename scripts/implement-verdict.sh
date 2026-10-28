@@ -56,8 +56,19 @@ SCHEMA="$(jq -r '.schema // ""' <<<"$EVIDENCE")"
 POLICY='
   [ (if .merge_base == null then "evidence: the merge base with \(.base_ref) could not be resolved" else empty end),
     (if .diff == null then "evidence: the diff against the base is unavailable" else empty end),
-    (if .agent == null then "evidence: the agent session left no summary"
-     elif .agent.status != "completed" then "agent: the session ended \(.agent.status // "unknown")"
+    (if .agent == null then "evidence: the agent sessions left no summary"
+     elif .phases == null and .agent.status != "completed" then "agent: the session ended \(.agent.status // "unknown")"
+     else empty end),
+    # Per phase, so the PR says where the sequence stopped rather than only that
+    # it did. `agent` is these records summed, so it needs no rule of its own here.
+    ( (.spec // "the spec") as $spec
+      | (.phases // [])[]
+      | if .status != "completed" then "phase \(.phase): the session ended \(.status // "without a summary")"
+        elif .outcome == "blocked" then "phase \(.phase): blocked — see `\($spec)/gates/\(.phase).md`"
+        elif .outcome == null then "phase \(.phase): left no gate file saying it finished"
+        else empty end ),
+    (if .phases != null and (.phases | length) < 3
+     then "phases: stopped after \(.phases[-1].phase); \(3 - (.phases | length)) phase(s) never ran"
      else empty end),
     (if (.commits // 0) == 0 then "commits: the branch has no commits beyond the base" else empty end),
     (if ((.checks // []) | length) == 0 then "checks: none were run" else empty end),
@@ -86,7 +97,13 @@ RENDER='
       "| Branch | \($ev.branch | code) at \($ev.head_sha[0:10] | code) |",
       "| Base | \($ev.base_ref | code) (merge base \(($ev.merge_base // "unresolved")[0:10] | code)) |",
       "| Diff | \(if $ev.diff then "\($ev.diff.files_changed) files, +\($ev.diff.insertions) −\($ev.diff.deletions)" else "unavailable" end) |",
+      "| Spec | \(($ev.spec // "not found") | code) |",
       "",
+      (if $ev.phases then
+        "### Phases\n\n| Phase | Session | Gate | Turns | Cost |\n|---|---|---|---|---|\n"
+        + ($ev.phases | map("| \(.phase) | \(.status // "no summary") | \(.outcome // "missing") | \(.turns // "–") | \(if .cost_usd then "$\(.cost_usd)" else "–" end) |") | join("\n"))
+        + "\n"
+      else empty end),
       "### Checks",
       "",
       "| Check | Source | Command | Result |",

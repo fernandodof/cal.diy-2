@@ -209,6 +209,34 @@ check "a session that hit its limit exits 1" "1" "$(run "$SB" FAKE_CLAUDE=fail)"
 check "its commits still reach a draft PR" "1" "$(grep -c '^pr create --draft .*--label agent:needs-help' "$SB/log/gh.log")"
 rm -rf "$SB"
 
+# --- a stopped sequence -----------------------------------------------------
+SB="$(sandbox)"
+check "a failed phase 1 exits 1" "1" "$(run "$SB" FAKE_FAIL_PHASE=1)"
+check "no phase starts after a failed one" "1" "$(wc -l < "$SB/log/claude.calls" | xargs)"
+check "the partial work still reaches a red draft PR" "1" \
+  "$(grep -c '^pr create --draft .*--label agent:needs-help' "$SB/log/gh.log")"
+check "the body says which phase failed" "1" \
+  "$(grep -c '^- phase 1-research: the session ended failed$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a blocked phase 2 exits 1" "1" "$(run "$SB" FAKE_OUTCOME_2=blocked)"
+check "phase 3 never starts after a blocked plan" "1 2" \
+  "$(sed -n 's/.*--headless --phase \([0-9]\).*/\1/p' "$SB/log/claude.calls" | xargs)"
+check "the body points at the blocked gate" "1" \
+  "$(grep -cF -- '- phase 2-plan: blocked — see `specs/thing/gates/2-plan.md`' "$SB/runs/issue-7/pr-body.md")"
+check "the gate list shows the blocked outcome" "1" \
+  "$(grep -c '^- `specs/thing/gates/2-plan.md` — Outcome: blocked$' "$SB/runs/issue-7/pr-body.md")"
+check "the body says the agent left no draft" "1" \
+  "$(grep -c '^_The agent left no PR body draft' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a phase 1 with no gate file exits 1" "1" "$(run "$SB" FAKE_NO_GATE=1)"
+check "nothing runs without a spec to hand on" "1" "$(wc -l < "$SB/log/claude.calls" | xargs)"
+check "the evidence records no spec" "null" "$(jq '.spec' "$SB/runs/issue-7/evidence.json")"
+rm -rf "$SB"
+
 SB="$(sandbox)"
 check "a run with no commits exits 1" "1" "$(run "$SB" FAKE_CLAUDE=nothing)"
 check "it opens no PR" "0" "$(grep -c '^pr create' "$SB/log/gh.log" || true)"

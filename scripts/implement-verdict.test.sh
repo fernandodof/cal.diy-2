@@ -84,6 +84,32 @@ check "a failed session is red" "1 red 1 agent:needs-help" \
 check "zero commits is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.commits = 0')")"
 
+# --- phases -----------------------------------------------------------------
+PHASED='.spec = "specs/thing" | .phases = [
+  {phase: "1-research", status: "completed", turns: 5, cost_usd: 0.1, outcome: "continue"},
+  {phase: "2-plan", status: "completed", turns: 3, cost_usd: 0.1, outcome: "continue"},
+  {phase: "3-implement", status: "completed", turns: 4, cost_usd: 0.2, outcome: "continue"}]'
+
+check "three continued phases are green" "0 green 0 " "$(verdict "$(evidence "$PHASED")")"
+
+PHASED_BLOCK="$("$VERDICT" <<<"$(evidence "$PHASED")" | jq -r '.evidence_block')"
+check "the block has a row per phase" "3" "$(grep -cE '^\| [123]-[a-z]+ \| completed \| continue \|' <<<"$PHASED_BLOCK")"
+
+# A blocked Plan is one reason for the block, and one for the Implement that
+# never ran because of it.
+check "a blocked phase is red, and the missing phase after it too" "1 red 2 agent:needs-help" \
+  "$(verdict "$(evidence "$PHASED | .phases |= .[0:2] | .phases[1].outcome = \"blocked\" | .agent.status = \"blocked\"")")"
+
+BLOCKED_BLOCK="$("$VERDICT" <<<"$(evidence "$PHASED | .phases |= .[0:2] | .phases[1].outcome = \"blocked\"")" | jq -r '.evidence_block' || true)"
+check "the reason points at the gate file" "1" \
+  "$(grep -cF -- '- phase 2-plan: blocked — see `specs/thing/gates/2-plan.md`' <<<"$BLOCKED_BLOCK")"
+
+check "a phase with no gate file is red" "1 red 2 agent:needs-help" \
+  "$(verdict "$(evidence "$PHASED | .phases |= .[0:1] | .phases[0].outcome = null")")"
+
+check "a failed phase session is red" "1 red 1 agent:needs-help" \
+  "$(verdict "$(evidence "$PHASED | .phases[2].status = \"failed\"")")"
+
 # --- missing evidence fails closed ------------------------------------------
 check "an unresolved merge base is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.merge_base = null')")"

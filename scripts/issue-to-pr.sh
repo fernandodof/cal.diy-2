@@ -125,6 +125,13 @@ for phase in 1-research 2-plan 3-implement; do
     '{phase: $phase, status, turns, cost_usd, outcome: (if $outcome == "" then null else $outcome end)}' \
     "$RUN_DIR/$phase/summary.json" >> "$RUN_DIR/phases.jsonl" 2>/dev/null \
     || jq -nc --arg phase "$phase" '{phase: $phase, status: null, turns: null, cost_usd: null, outcome: null}' >> "$RUN_DIR/phases.jsonl"
+
+  # The next phase reads this one's handoff file, so it cannot start on a phase
+  # that failed, blocked, or left no gate saying it finished.
+  if [[ "$(jq -r '.status' "$RUN_DIR/$phase/summary.json" 2>/dev/null)" != "completed" || "$OUTCOME" != "continue" ]]; then
+    echo "issue-to-pr: stopping after phase $phase (session $(jq -r '.status // "missing"' "$RUN_DIR/$phase/summary.json" 2>/dev/null || echo missing), gate ${OUTCOME:-missing})" >&2
+    break
+  fi
 done
 jq -s . "$RUN_DIR/phases.jsonl" > "$RUN_DIR/phases.json"
 

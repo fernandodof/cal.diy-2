@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -51,14 +51,6 @@
      given the spec path, body holds the draft, the gate links and the block;
      `git diff main -- .claude/skills/implement-task/phases/` is empty
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: headless mode, one session per phase (#27).
-
 6. **A stopped sequence is red, and says where it stopped** — proves a failed
    session, a missing gate file or `Outcome: blocked` ends the sequence and
    reaches the PR as red evidence
@@ -71,6 +63,11 @@ Increment: headless mode, one session per phase (#27).
      fails → no later sessions; phase 2 blocked → no phase 3, draft PR red;
      no gate file → stops)
 
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -101,3 +98,6 @@ Increment: headless mode, one session per phase (#27).
   orchestrator checks). The collector's `--agent-summary` became `--phases` and
   `--spec`, with `agent` now the sum, so part of slice 6's evidence work landed
   here. Next: slice 6, stop conditions, verdict reasons, schema doc.
+- Slice 6 done: the loop stops at the first failed, blocked or gate-less phase;
+  the verdict gives one reason per stopped phase plus one for the phases that
+  never ran, and renders a per-phase table (20 verdict, 58 orchestrator checks).
