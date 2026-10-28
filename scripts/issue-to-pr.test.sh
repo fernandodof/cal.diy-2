@@ -90,7 +90,7 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
   git add -A -- . ':!.claude'
   git -c user.email=a@b -c user.name=agent commit --quiet -m "phase $phase"
 fi
-if [[ "${FAKE_FAIL_PHASE:-}" == "$phase" || ( "$mode" == fail && "$phase" == 3 ) ]]; then
+if [[ -n "$phase" && ( "${FAKE_FAIL_PHASE:-}" == "$phase" || ( "$mode" == fail && "$phase" == 3 ) ) ]]; then
   echo '{"is_error": true, "subtype": "error_max_turns", "num_turns": 40, "total_cost_usd": 1}'
 else
   echo '{"is_error": false, "subtype": "success", "result": "Did the thing.", "num_turns": 3, "total_cost_usd": 0.1}'

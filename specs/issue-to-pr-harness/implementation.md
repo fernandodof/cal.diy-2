@@ -100,4 +100,9 @@
   here. Next: slice 6, stop conditions, verdict reasons, schema doc.
 - Slice 6 done: the loop stops at the first failed, blocked or gate-less phase;
   the verdict gives one reason per stopped phase plus one for the phases that
-  never ran, and renders a per-phase table (20 verdict, 58 orchestrator checks).
+  never ran, and renders a per-phase table (21 verdict, 61 orchestrator checks).
+- From slice 5 until this fix the orchestrator test exited 1 before its last
+  section: with no `--phase` in the prompt, the fake `claude` matched an empty
+  `FAKE_FAIL_PHASE` and failed, and `set -e` ended the script. The check counts
+  quoted for slice 5 were real, but the three `headless-task.sh` checks did not
+  run. Fixed in the fake; both suites now exit 0.
