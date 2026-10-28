@@ -7,6 +7,9 @@
 #   cat task.md | ./scripts/headless-task.sh -
 #   ./scripts/headless-task.sh --issue 42
 #   ./scripts/headless-task.sh --issue https://github.com/owner/repo/issues/42
+#   ./scripts/headless-task.sh --workdir ../worktrees/issue-42 --issue 42
+#   ./scripts/headless-task.sh --allowed-tools "Read,Edit,Bash(yarn test:*)" \
+#     --disallowed-tools "Bash(git push:*)" "add a unit test for getWorkingHours"
 #
 # Exit codes: 0 = completed, 1 = agent failed, 2 = bad usage/environment.
 
@@ -16,11 +19,15 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${HEADLESS_TASK_OUT_DIR:-$REPO_ROOT/.claude/headless-runs}"
 MAX_TURNS="${HEADLESS_TASK_MAX_TURNS:-40}"
 PERMISSION_MODE="${HEADLESS_TASK_PERMISSION_MODE:-acceptEdits}"
+WORKDIR="${HEADLESS_TASK_WORKDIR:-}"
+# Comma-separated permission rules, passed through to the CLI as given.
+ALLOWED_TOOLS="${HEADLESS_TASK_ALLOWED_TOOLS:-}"
+DISALLOWED_TOOLS="${HEADLESS_TASK_DISALLOWED_TOOLS:-}"
 RUN_ID=""
 ISSUE=""
 
 usage() {
-  sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -43,6 +50,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --issue) ISSUE="${2:-}"; [[ -n "$ISSUE" ]] || usage; shift 2 ;;
     --run-id) RUN_ID="${2:-}"; [[ -n "$RUN_ID" ]] || usage; shift 2 ;;
+    --workdir) WORKDIR="${2:-}"; [[ -n "$WORKDIR" ]] || usage; shift 2 ;;
+    --allowed-tools) ALLOWED_TOOLS="${2:-}"; [[ -n "$ALLOWED_TOOLS" ]] || usage; shift 2 ;;
+    --disallowed-tools) DISALLOWED_TOOLS="${2:-}"; [[ -n "$DISALLOWED_TOOLS" ]] || usage; shift 2 ;;
     --max-turns) MAX_TURNS="${2:-}"; shift 2 ;;
     --permission-mode) PERMISSION_MODE="${2:-}"; shift 2 ;;
     -h|--help) usage ;;
@@ -72,6 +82,18 @@ command -v claude >/dev/null 2>&1 || {
   exit 2
 }
 
+# The session runs in, and may only touch, the working directory: the repo by
+# default, or a worktree when a caller isolates the run from this checkout.
+if [[ -n "$WORKDIR" ]]; then
+  [[ -d "$WORKDIR" ]] || {
+    echo "headless-task: --workdir '$WORKDIR' is not a directory" >&2
+    exit 2
+  }
+  WORKDIR="$(cd "$WORKDIR" && pwd)"
+else
+  WORKDIR="$REPO_ROOT"
+fi
+
 RUN_ID="${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 RUN_DIR="$OUT_DIR/$RUN_ID"
 mkdir -p "$RUN_DIR"
@@ -80,13 +102,20 @@ printf '%s\n' "$TASK" > "$RUN_DIR/task.txt"
 
 echo "headless-task: run $RUN_ID -> $RUN_DIR" >&2
 
+# A denied rule beats an allowed one, so a caller can rely on --disallowed-tools
+# even under a permissive --permission-mode.
+TOOL_ARGS=()
+[[ -n "$ALLOWED_TOOLS" ]] && TOOL_ARGS+=(--allowedTools "$ALLOWED_TOOLS")
+[[ -n "$DISALLOWED_TOOLS" ]] && TOOL_ARGS+=(--disallowedTools "$DISALLOWED_TOOLS")
+
 set +e
-printf '%s' "$TASK" | claude \
+printf '%s' "$TASK" | (cd "$WORKDIR" && claude \
   --print \
   --output-format json \
   --permission-mode "$PERMISSION_MODE" \
   --max-turns "$MAX_TURNS" \
-  --add-dir "$REPO_ROOT" \
+  ${TOOL_ARGS[@]+"${TOOL_ARGS[@]}"} \
+  --add-dir "$WORKDIR") \
   > "$RUN_DIR/result.json" 2> "$RUN_DIR/stderr.log"
 CLI_STATUS=$?
 set -e
