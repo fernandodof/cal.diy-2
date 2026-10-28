@@ -72,6 +72,7 @@ POLICY='
      else empty end),
     (if (.commits // 0) == 0 then "commits: the branch has no commits beyond the base" else empty end),
     (if ((.checks // []) | length) == 0 then "checks: none were run" else empty end),
+    (if .declared_commands == null then "verification: Phase 2 declared no commands" else empty end),
     ( (.checks // [])[]
       | if .exit_code == null then "check: \(.name) did not run"
         elif .exit_code != 0 then "check: \(.name) exited \(.exit_code)"

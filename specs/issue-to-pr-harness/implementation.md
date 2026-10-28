@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
 
@@ -63,14 +63,6 @@
      fails → no later sessions; phase 2 blocked → no phase 3, draft PR red;
      no gate file → stops)
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: declared verification commands (#28).
-
 7. **Declared tests run and reach the evidence** — proves a `yarn test` command
    Phase 2 writes into `## Verification` is run by the collector, not the agent,
    and shows in the PR as a `declared` check
@@ -82,6 +74,15 @@ Increment: declared verification commands (#28).
      fake Phase 3 adds; fake `yarn` records it run in the worktree; evidence has a
      `declared` check; a Phase 2 that declares nothing is red; and
      `./scripts/implement-verdict.test.sh` for the null rule
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+Increment: declared verification commands (#28).
+
 8. **Commands that would not really verify anything are red** — proves rejected
    commands never execute, and a declared test that matches nothing is not a pass
    - `scripts/implement-evidence.sh` (`rejected_commands` with reasons; missing
@@ -132,3 +133,7 @@ Increment: declared verification commands (#28).
   run. Fixed in the fake; both suites now exit 0.
 - #28 planned on `feat/declared-verification`, cut from `origin/main` after #35
   merged. Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 7 done: Phase 2's `## Verification` block is parsed, held to the
+  `yarn test <path>` allowlist and run as an argv by the collector (68
+  orchestrator checks, verdict suite green; both exit 0). Rejections are already
+  recorded in `rejected_commands` here; slice 8 makes them red. Next: slice 8.

@@ -42,7 +42,11 @@ question you can answer with a reasonable, stated assumption is not a blocker.
 - **Phase 2** reads `<spec>/design.md` from the `--spec` it is given. The base is
   `--base`; do not ask for it. The harness has already created and checked out
   the working branch, so skip the "branch from the base" step — but still commit
-  the spec, and record the base under `## Session Notes`.
+  the spec, and record the base under `## Session Notes`. Fill the fenced block
+  under `## Verification` with one `yarn test <path>` line per test file your
+  slices' "Verified by" names. The harness runs exactly these, after Phase 3,
+  and nothing else is accepted: no other command, no flags, no globs, no shell
+  syntax. A path that does not exist by the end of Phase 3 counts as a failure.
 - **Phase 3** reads `<spec>/implementation.md`. Commit each slice as the phase
   file says, and set `## Status: complete` (or `blocked`) as usual. Then, instead
   of pushing and opening the PR:
