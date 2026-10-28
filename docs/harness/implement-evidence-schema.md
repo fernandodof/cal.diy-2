@@ -26,11 +26,21 @@ copied from what the agent said about its own work. Facts it cannot reach are
   "branch": "agent/issue-24",
   "head_sha": "…",
   "commits": 3,                          // commits since merge_base; null without one
-  "agent": {                             // the headless run's summary.json; null if missing
-    "status": "completed",               // "completed" | "failed"
+  "spec": "specs/issue-to-pr-harness",   // the folder Phase 1 added a gate to; null if none
+  "agent": {                             // the phases summed; null if none were recorded
+    "status": "completed",               // "completed" | "failed" | "blocked" | "incomplete"
     "turns": 40,
     "cost_usd": 1.2
   },
+  "phases": [                            // one per session started, in order
+    {
+      "phase": "1-research",             // "1-research" | "2-plan" | "3-implement"
+      "status": "completed",             // the session's summary.json; null if it left none
+      "turns": 12,
+      "cost_usd": 0.4,
+      "outcome": "continue"              // the gate file's first line; null if there is none
+    }
+  ],
   "diff": {                              // against merge_base; null without one
     "files_changed": 4,
     "insertions": 120,
@@ -63,9 +73,19 @@ biome when no changed file is one biome reads, for instance, where biome itself
 would exit 0 having checked nothing. That is recorded rather than omitted so the
 gap is visible in the verdict.
 
-**`agent`** is a fact about the session, not evidence about the code. A session
-that hit its turn limit can still leave correct commits; the verdict marks it red
-so a human looks, and the checks say whether the commits hold up.
+**`phases`** has one record per headless session the harness started. The harness
+stops at the first phase whose session did not complete or whose gate file is
+missing or says `Outcome: blocked`, so fewer than three records means the
+sequence stopped there. `outcome` comes from the first line of
+`<spec>/gates/<phase>.md` (see `.claude/skills/implement-task/headless.md`).
+
+**`agent`** is `phases` summed: `completed` only when all three ran, completed and
+continued; otherwise `failed` (a session failed), `blocked` (a gate said so) or
+`incomplete` (anything else short of three). It is a fact about the sessions, not
+evidence about the code: a phase that hit its turn limit can still leave correct
+commits, so the verdict marks it red for a human and the checks say whether the
+commits hold up. The verdict reports `phases` one reason each, and reads `agent`'s
+status only from a document without `phases`.
 
 ## Verdict
 

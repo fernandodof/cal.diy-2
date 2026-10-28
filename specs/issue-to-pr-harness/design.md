@@ -156,3 +156,128 @@ None.
   in under 10 minutes, max 5–7 files excluding tests, max 500 lines. This slice is
   5 non-test files; the line budget is the risk, so the scripts stay minimal and
   anything not needed for the green/red path is deferred.
+
+---
+
+# Increment: headless mode, one session per phase (#27)
+
+Tracks [#27](https://github.com/fernandodof/cal.diy-2/issues/27). Builds on the
+tracer bullet above, now merged (#34).
+
+## Overview
+
+`/implement-task` gains a headless mode in which no gate waits: each gate writes a
+summary file to `specs/<slug>/gates/` and the phase ends. The harness runs
+Research, Plan and Implement as **three separate** headless sessions, stops the
+sequence when a phase fails, and opens the PR with the agent's body draft
+followed by the harness's evidence block. The interactive flow is unchanged.
+
+## Problem Statement
+
+The tracer runs `/implement-task` in one session with a prompt that says "treat
+every gate as approved" (`scripts/issue-to-pr.sh:80-86`). The skill's own design
+— "each phase writes a file; the next phase reads that file and nothing else"
+(`.claude/skills/implement-task/SKILL.md`) — is not honoured: one context carries
+all three phases. The gates' content is lost instead of reaching the reviewer, and
+the PR body is the agent's free-form closing message (`result.md`), not the
+skill's PR body template (`phases/3-implement.md:81-107`).
+
+## Technical Design
+
+### Skill: headless mode
+
+A new `.claude/skills/implement-task/headless.md`, linked from `SKILL.md`, holds
+every headless rule. The three phase files are **not edited**, so the interactive
+flow cannot drift. Invocation:
+
+```
+/implement-task --headless --phase <1|2|3> <issue URL>
+```
+
+Rules the file states:
+
+- **Gates write instead of waiting.** Each phase ends by writing
+  `specs/<slug>/gates/<n>-<phase>.md` and committing it with the phase's handoff
+  file, then stops. Contents:
+  - Phase 1: the Overview, the file list, and each open question **with the
+    assumption made in place of an answer**.
+  - Phase 2: the numbered slices and the base (as given by the harness).
+  - Phase 3: `git diff <base> --stat`.
+- **Every gate file starts with `Outcome: continue` or `Outcome: blocked`.**
+  Blocked is for the cases where the interactive flow says "stop and surface it"
+  (e.g. a task contradicting a constraint, `phases/1-research.md` step 5): the
+  file says why, and the phase stops.
+- **No branching.** The harness has already created and checked out the working
+  branch; Phase 2's "branch from the base" step is skipped, its commit is not.
+- **The base is given**, not asked: the prompt names it.
+- **Phase 3 commits only.** No `git push`, no `gh pr create` (both on the
+  harness's deny list). It writes the PR body draft, from the template in
+  `phases/3-implement.md`, to `.claude/headless-runs/pr-body.md` in the worktree —
+  gitignored (`.gitignore:110`), so it is never committed.
+- **Locating the spec.** Phase 1 may extend an existing spec folder (step 1 of
+  `phases/1-research.md`) rather than create one, so the slug is the agent's
+  choice. The harness finds it afterwards from git: the folder whose
+  `gates/1-research.md` the branch added. Phases 2 and 3 are told that path.
+
+### Orchestrator
+
+```
+for phase in 1-research 2-plan 3-implement:
+  headless-task.sh --run-id issue-N/<phase> --workdir <wt> … 
+      "/implement-task --headless --phase <n> <issue url> [--spec specs/<slug>]"
+  stop if: session failed | gate file missing | gate Outcome: blocked
+  after phase 1: resolve <slug> from the branch's added gates/1-research.md
+```
+
+The collector, verdict, push and PR steps run after the loop exactly as today,
+whether it completed or stopped. The PR body becomes: `Closes #N`, the agent's
+`pr-body.md` draft (or a one-line note that there is none), a link list to the
+committed gate files, the evidence block, the footer.
+
+### Evidence (`implement-evidence/1`, additive)
+
+- New `phases`: `[{phase, status, turns, cost_usd, outcome}]`, one per session
+  started, in order. `outcome` is the gate file's `continue` / `blocked`, or
+  `null` if the file is missing.
+- `agent` stays, now the aggregate: `completed` only when all three phases ran,
+  completed, and continued; turns and cost summed. The verdict needs no new rule
+  for a stopped sequence, and a v1 reader keeps working.
+- New `spec`: the resolved `specs/<slug>` path, or `null`.
+
+The verdict renders a per-phase table, and a red reason per stopped phase.
+
+### Files
+
+| File | Change |
+|---|---|
+| `.claude/skills/implement-task/headless.md` | **new** — every headless rule |
+| `.claude/skills/implement-task/SKILL.md` | a short "Headless mode" section linking it |
+| `scripts/issue-to-pr.sh` | three sessions, stop conditions, slug resolution, PR body from the draft |
+| `scripts/implement-evidence.sh` | `phases`, aggregate `agent`, `spec` |
+| `scripts/implement-verdict.sh` | per-phase table and reasons |
+| `docs/harness/implement-evidence-schema.md` | the new fields |
+| `scripts/issue-to-pr.test.sh`, `scripts/implement-verdict.test.sh` | phase-aware fake `claude`; new cases |
+
+Six non-test files, inside `specs/README.md`'s 5–7.
+
+## Edge Cases
+
+- **Phase 1 adds no `gates/1-research.md`** → `outcome: null`, the sequence stops,
+  `spec: null`. With no commits the existing no-PR path applies.
+- **Two spec folders gain a `gates/1-research.md`** → ambiguous; treated as missing.
+- **A session completes but its gate says blocked** → stops; the gate file is
+  committed, so the draft PR carries the reason.
+- **No `pr-body.md`** (Phase 3 never ran or skipped it) → the body says so; the
+  evidence block is still there.
+- **Per-phase run outputs** go to `.claude/headless-runs/issue-N/<phase>/`; the
+  issue-level files (`issue.json`, `evidence.json`, `pr-body.md`) stay one level up.
+
+## Out of Scope
+
+- Per-phase turn caps and the cost cap (#31) — each session keeps
+  `HEADLESS_TASK_MAX_TURNS`.
+- Resuming from `## Status` (#32), the review phase (#30).
+- **Constraint shaping this design** — the merged harness denies the agent
+  `git push` (`scripts/issue-to-pr.sh`, `DISALLOWED_TOOLS`; ADR in #24's design).
+  #27's text says headless Phase 3 "commits, pushes"; this design keeps the push
+  with the harness, as #24 settled.

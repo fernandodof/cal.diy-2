@@ -57,6 +57,13 @@ Phase 2, plus the drafted PR body. Confirm that base is still the intended targe
 
 Report the PR URL when done.
 
+## Headless mode
+
+Invoked with `--headless --phase <n>`, as `scripts/issue-to-pr.sh` does, run only
+that phase and follow [headless.md](headless.md): each gate writes a summary file
+and the phase ends, instead of waiting for the user. Without `--headless`,
+nothing in this section applies.
+
 ## Rules that hold across all three phases
 
 - **Anything a phase asserts about the codebase must be verified in it.** Cite

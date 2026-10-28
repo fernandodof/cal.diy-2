@@ -40,12 +40,34 @@
      and the type-check call), then one real
      `./scripts/implement-evidence.sh` run against a worktree of this branch
 
+5. **Three phases, three sessions, to a PR from the agent's draft** — proves the
+   harness runs Research → Plan → Implement as separate headless sessions, each
+   leaving a committed gate file, and opens the PR with the skill's own body
+   - `.claude/skills/implement-task/headless.md` (new), `.claude/skills/implement-task/SKILL.md`,
+     `scripts/issue-to-pr.sh` (phase loop, spec folder from the added
+     `gates/1-research.md`, body = draft + gate links + evidence block)
+   - Verified by: `./scripts/issue-to-pr.test.sh` with a phase-aware fake `claude`
+     — three sessions in order, each with `--headless --phase <n>`, phases 2–3
+     given the spec path, body holds the draft, the gate links and the block;
+     `git diff main -- .claude/skills/implement-task/phases/` is empty
+
+6. **A stopped sequence is red, and says where it stopped** — proves a failed
+   session, a missing gate file or `Outcome: blocked` ends the sequence and
+   reaches the PR as red evidence
+   - `scripts/issue-to-pr.sh` (stop conditions), `scripts/implement-evidence.sh`
+     (`phases`, aggregate `agent`, `spec`), `scripts/implement-verdict.sh`
+     (per-phase table, a reason per stopped phase),
+     `docs/harness/implement-evidence-schema.md`
+   - Verified by: `./scripts/implement-verdict.test.sh` (fixtures: all continued,
+     one blocked, one missing outcome) and `./scripts/issue-to-pr.test.sh` (phase 1
+     fails → no later sessions; phase 2 blocked → no phase 3, draft PR red;
+     no gate file → stops)
+
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
-
 
 ## Session Notes
 
@@ -69,3 +91,18 @@
   `--dry=json`: `tsc --pretty --noEmit`; real run exit 0 in 51s). The real run
   showed biome exiting 0 after checking 0 files when nothing changed is a file it
   reads; the collector now records that as not run (`null`, red).
+- #27 planned on `feat/implement-task-headless`, cut from `origin/main` after #34
+  merged. Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 5 done: three headless sessions in order, spec folder found from the
+  added `gates/1-research.md`, PR body = agent draft + gate links + evidence (46
+  orchestrator checks). The collector's `--agent-summary` became `--phases` and
+  `--spec`, with `agent` now the sum, so part of slice 6's evidence work landed
+  here. Next: slice 6, stop conditions, verdict reasons, schema doc.
+- Slice 6 done: the loop stops at the first failed, blocked or gate-less phase;
+  the verdict gives one reason per stopped phase plus one for the phases that
+  never ran, and renders a per-phase table (21 verdict, 61 orchestrator checks).
+- From slice 5 until this fix the orchestrator test exited 1 before its last
+  section: with no `--phase` in the prompt, the fake `claude` matched an empty
+  `FAKE_FAIL_PHASE` and failed, and `set -e` ended the script. The check counts
+  quoted for slice 5 were real, but the three `headless-task.sh` checks did not
+  run. Fixed in the fake; both suites now exit 0.
