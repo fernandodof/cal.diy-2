@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: complete
+## Status: planned
 
 ## Completed
 
@@ -46,6 +46,30 @@
 
 ## Next Steps
 
+Increment: headless mode, one session per phase (#27).
+
+5. **Three phases, three sessions, to a PR from the agent's draft** — proves the
+   harness runs Research → Plan → Implement as separate headless sessions, each
+   leaving a committed gate file, and opens the PR with the skill's own body
+   - `.claude/skills/implement-task/headless.md` (new), `.claude/skills/implement-task/SKILL.md`,
+     `scripts/issue-to-pr.sh` (phase loop, spec folder from the added
+     `gates/1-research.md`, body = draft + gate links + evidence block)
+   - Verified by: `./scripts/issue-to-pr.test.sh` with a phase-aware fake `claude`
+     — three sessions in order, each with `--headless --phase <n>`, phases 2–3
+     given the spec path, body holds the draft, the gate links and the block;
+     `git diff main -- .claude/skills/implement-task/phases/` is empty
+6. **A stopped sequence is red, and says where it stopped** — proves a failed
+   session, a missing gate file or `Outcome: blocked` ends the sequence and
+   reaches the PR as red evidence
+   - `scripts/issue-to-pr.sh` (stop conditions), `scripts/implement-evidence.sh`
+     (`phases`, aggregate `agent`, `spec`), `scripts/implement-verdict.sh`
+     (per-phase table, a reason per stopped phase),
+     `docs/harness/implement-evidence-schema.md`
+   - Verified by: `./scripts/implement-verdict.test.sh` (fixtures: all continued,
+     one blocked, one missing outcome) and `./scripts/issue-to-pr.test.sh` (phase 1
+     fails → no later sessions; phase 2 blocked → no phase 3, draft PR red;
+     no gate file → stops)
+
 
 ## Session Notes
 
@@ -69,3 +93,5 @@
   `--dry=json`: `tsc --pretty --noEmit`; real run exit 0 in 51s). The real run
   showed biome exiting 0 after checking 0 files when nothing changed is a file it
   reads; the collector now records that as not run (`null`, red).
+- #27 planned on `feat/implement-task-headless`, cut from `origin/main` after #34
+  merged. Base branch: `main` (confirmed at the Phase 2 gate).
