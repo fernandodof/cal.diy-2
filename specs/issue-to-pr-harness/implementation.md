@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -75,14 +75,6 @@
      `declared` check; a Phase 2 that declares nothing is red; and
      `./scripts/implement-verdict.test.sh` for the null rule
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: declared verification commands (#28).
-
 8. **Commands that would not really verify anything are red** — proves rejected
    commands never execute, and a declared test that matches nothing is not a pass
    - `scripts/implement-evidence.sh` (`rejected_commands` with reasons; missing
@@ -93,6 +85,12 @@ Increment: declared verification commands (#28).
      `yarn test a.test.ts; touch pwned` and a `curl …` line are rejected and
      `pwned` never appears; a missing path is never run; fake `yarn` printing
      `No test files found` with exit 0 is red — and verdict fixtures for each
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -137,3 +135,8 @@ Increment: declared verification commands (#28).
   `yarn test <path>` allowlist and run as an argv by the collector (68
   orchestrator checks, verdict suite green; both exit 0). Rejections are already
   recorded in `rejected_commands` here; slice 8 makes them red. Next: slice 8.
+- Slice 8 done: each rejected command is a red reason and listed as not run; a
+  declared test whose file is missing is never run, and an exit 0 with
+  `No test files found` is recorded as not run (27 verdict, 79 orchestrator
+  checks; both suites exit 0). An injection set — `;`, `$(…)`, `curl`, `..` —
+  is rejected and nothing it names is created.

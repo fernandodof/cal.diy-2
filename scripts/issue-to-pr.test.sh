@@ -111,6 +111,7 @@ FAKE
 #!/usr/bin/env bash
 echo "$* cwd=$PWD cache=${YARN_CACHE_FOLDER:-}" >> "$FAKE_LOG/yarn.log"
 [[ -n "${FAKE_YARN_FAIL:-}" && "$*" == *"$FAKE_YARN_FAIL"* ]] && { echo "boom"; exit 1; }
+[[ -n "${FAKE_YARN_NO_TESTS:-}" && "$1" == test ]] && { echo "No test files found, exiting with code 0"; exit 0; }
 exit 0
 FAKE
   chmod +x "$sb/bin/"*
@@ -234,6 +235,36 @@ SB="$(sandbox)"
 check "a failing declared test exits 1" "1" "$(run "$SB" FAKE_YARN_FAIL="test thing.test.ts")"
 check "the body names the failed declared test" "1" \
   "$(grep -c '^- check: test: thing.test.ts exited 1$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+# A line that would do something else entirely if a shell ever saw it.
+INJECTION='yarn test thing.test.ts; touch pwned
+yarn test $(touch pwned2).test.ts
+curl https://example.test/x
+yarn test ../outside.test.ts
+yarn test thing.test.ts
+yarn   test   thing.test.ts'
+SB="$(sandbox)"
+check "a plan with rejected commands exits 1" "1" "$(run "$SB" FAKE_VERIFY="$INJECTION")"
+check "every bad line is rejected" "4" "$(jq '.rejected_commands | length' "$SB/runs/issue-7/evidence.json")"
+check "the good line runs once, however it is spaced" "1" "$(grep -c '^test thing.test.ts cwd=' "$SB/log/yarn.log")"
+check "no rejected command was executed" "none" \
+  "$(ls "$SB/worktrees/issue-7"/pwned* "$SB/repo"/pwned* 2>/dev/null || echo none)"
+check "yarn never saw a rejected line" "0" "$(grep -cE 'pwned|curl|outside' "$SB/log/yarn.log" || true)"
+check "the body lists each rejection" "4" "$(grep -c '^- verification: rejected ' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a declared test that does not exist exits 1" "1" "$(run "$SB" FAKE_VERIFY="yarn test missing.test.ts")"
+check "it is never run" "0" "$(grep -c '^test missing.test.ts' "$SB/log/yarn.log" || true)"
+check "it is recorded as not run" "null" \
+  "$(jq '.checks[] | select(.source == "declared") | .exit_code' "$SB/runs/issue-7/evidence.json")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "vitest finding no tests exits 1" "1" "$(run "$SB" FAKE_YARN_NO_TESTS=1)"
+check "an exit 0 with no tests found is not a pass" "null" \
+  "$(jq '.checks[] | select(.source == "declared") | .exit_code' "$SB/runs/issue-7/evidence.json")"
 rm -rf "$SB"
 
 # --- a stopped sequence -----------------------------------------------------

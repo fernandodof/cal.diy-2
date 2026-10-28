@@ -104,6 +104,11 @@ run_check() {
     (cd "$WORKTREE" && "$@") > "$log" 2>&1
     exit_code=$?
     set -e
+    # vitest.config.mts sets passWithNoTests, so a test path no project picks up
+    # exits 0. That is a check that did not run, not one that passed.
+    if [[ $exit_code -eq 0 ]] && grep -q "No test files found" "$log"; then
+      exit_code="null"
+    fi
   fi
   jq -n \
     --arg name "$name" \
@@ -198,7 +203,18 @@ CHECKS="$(
       paths=("${words[@]:2}")
       name="test: ${paths[0]}"
       [[ ${#paths[@]} -gt 1 ]] && name+=" (+$((${#paths[@]} - 1)))"
-      run_check "$name" declared "${words[@]}"
+      missing=""
+      for path in "${paths[@]}"; do
+        [[ -f "$WORKTREE/$path" ]] || { missing="$path"; break; }
+      done
+      if [[ -n "$missing" ]]; then
+        # Never run: vitest would pass a path that matches nothing.
+        jq -n --arg name "$name" --arg command "$line" --arg missing "$missing" \
+          '{name: $name, command: $command, source: "declared", exit_code: null,
+            log_tail: "not run: \($missing) does not exist"}'
+      else
+        run_check "$name" declared "${words[@]}"
+      fi
     done
   } | jq -s .
 )"

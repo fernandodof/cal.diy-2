@@ -80,6 +80,19 @@ check "a failing declared test is red" "1 red 1 agent:needs-help" \
 check "declaring nothing is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.declared_commands = null | .checks |= .[0:1]')")"
 
+check "a rejected command is red" "1 red 1 agent:needs-help" \
+  "$(verdict "$(evidence '.rejected_commands = [{command: "curl https://x", reason: "only `yarn test <path>` is allowed"}]')")"
+
+check "each rejected command is its own reason" "1 red 2 agent:needs-help" \
+  "$(verdict "$(evidence '.rejected_commands = [{command: "a", reason: "r"}, {command: "b", reason: "r"}]')")"
+
+REJECTED_BLOCK="$("$VERDICT" <<<"$(evidence '.rejected_commands = [{command: "curl https://x", reason: "nope"}]')" | jq -r '.evidence_block' || true)"
+check "the block lists rejected commands as not run" "1" \
+  "$(grep -cF -- '- `curl https://x` — nope' <<<"$REJECTED_BLOCK")"
+
+check "a declared test that never ran is red" "1 red 1 agent:needs-help" \
+  "$(verdict "$(evidence '.checks[1].exit_code = null | .checks[1].log_tail = "not run: thing.test.ts does not exist"')")"
+
 check "no checks at all is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.checks = []')")"
 
