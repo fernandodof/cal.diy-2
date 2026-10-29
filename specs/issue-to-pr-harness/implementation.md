@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -98,14 +98,6 @@
      criterion found and `passed`, the body has the table; a design with no
      criteria is red — and a verdict fixture for the null rule
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: acceptance criteria mapped to tests (#29).
-
 10. **A criterion without a passing test is red, and says why** — proves every way
     a criterion can go uncovered names itself in the PR
     - `scripts/implement-verdict.sh` (untagged, not declared, not found, not
@@ -114,6 +106,12 @@ Increment: acceptance criteria mapped to tests (#29).
     - Verified by: verdict fixtures for each reason and for skipped/todo; the
       orchestrator with a fake report marking the tagged test `skipped` while the
       run exits 0 → red
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -171,3 +169,7 @@ Increment: acceptance criteria mapped to tests (#29).
   the lookup. Found while testing: with no report on disk, the report loop's last
   `[[ -f ]]` failed the pipeline under `pipefail`; now an explicit `if`.
   Next: slice 10, the per-criterion reasons.
+- Slice 10 done: each uncovered criterion gives one reason — untagged, not
+  declared, not found, or reported as failed/skipped/todo (36 verdict, 93
+  orchestrator checks; both exit 0). A skipped tagged test is red although its
+  run exits 0, and an undeclared tagged file is never run.

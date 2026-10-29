@@ -89,6 +89,28 @@ CRITERIA_BLOCK="$("$VERDICT" <<<"$(evidence)" | jq -r '.evidence_block')"
 check "the block has a row per criterion" "1" \
   "$(grep -cF '| ✅ | the thing works | `thing.test.ts` › thing works | passed |' <<<"$CRITERIA_BLOCK")"
 
+# Each uncovered criterion names why, in the PR.
+criterion_reason() {
+  "$VERDICT" <<<"$(evidence "$1")" 2>/dev/null | jq -r '.reasons | join(" | ")' || true
+}
+check "an untagged criterion is red" "criterion \`the thing works\`: no test named" \
+  "$(criterion_reason '.criteria[0] |= (.test_file = null | .test_name = null | .test_status = null | .test_found = false | .declared = false)')"
+check "a criterion whose file was not declared is red" \
+  "criterion \`the thing works\`: \`thing.test.ts\` is not among the declared tests" \
+  "$(criterion_reason '.criteria[0].declared = false')"
+check "a criterion whose test was not found is red" \
+  "criterion \`the thing works\`: \`thing works\` was not found in \`thing.test.ts\`" \
+  "$(criterion_reason '.criteria[0] |= (.test_found = false | .test_status = null)')"
+check "a criterion whose test failed is red" "criterion \`the thing works\`: \`thing works\` was reported as failed" \
+  "$(criterion_reason '.criteria[0].test_status = "failed"')"
+# vitest exits 0 with these, which is the reason criteria read the report.
+check "a skipped test does not cover a criterion" "criterion \`the thing works\`: \`thing works\` was reported as skipped" \
+  "$(criterion_reason '.criteria[0].test_status = "skipped"')"
+check "a todo test does not cover a criterion" "criterion \`the thing works\`: \`thing works\` was reported as todo" \
+  "$(criterion_reason '.criteria[0].test_status = "todo"')"
+check "each uncovered criterion is its own reason" "1 red 2 agent:needs-help" \
+  "$(verdict "$(evidence '.criteria += [.criteria[0] | .text = "another" | .test_status = "failed"] | .criteria[0].test_status = "skipped"')")"
+
 check "a rejected command is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.rejected_commands = [{command: "curl https://x", reason: "only `yarn test <path>` is allowed"}]')")"
 

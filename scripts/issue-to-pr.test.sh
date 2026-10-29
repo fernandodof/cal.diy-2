@@ -300,6 +300,26 @@ check "the body says so" "1" \
   "$(grep -c '^- criteria: Phase 1 recorded no acceptance criteria$' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
+SB="$(sandbox)"
+check "a skipped tagged test exits 1, though its run exits 0" "1" "$(run "$SB" FAKE_TEST_STATUS=skipped)"
+check "the declared run itself passed" "0" \
+  "$(jq '.checks[] | select(.source == "declared") | .exit_code' "$SB/runs/issue-7/evidence.json")"
+check "the body says the criterion's test was skipped" "1" \
+  "$(grep -cF -- '- criterion `the thing works`: `thing works` was reported as skipped' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a renamed test exits 1" "1" "$(run "$SB" FAKE_TEST_NAME="thing still works")"
+check "the criterion's test is not found" "false" "$(jq '.criteria[0].test_found' "$SB/runs/issue-7/evidence.json")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a criterion naming an undeclared file exits 1" "1" \
+  "$(run "$SB" FAKE_CRITERIA='- [ ] other — `other.test.ts` › other works')"
+check "the undeclared file was never run" "0" "$(grep -c '^test other.test.ts' "$SB/log/yarn.log" || true)"
+check "the criterion is marked not declared" "false" "$(jq '.criteria[0].declared' "$SB/runs/issue-7/evidence.json")"
+rm -rf "$SB"
+
 # --- a stopped sequence -----------------------------------------------------
 SB="$(sandbox)"
 check "a failed phase 1 exits 1" "1" "$(run "$SB" FAKE_FAIL_PHASE=1)"
