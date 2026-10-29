@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
 
@@ -107,14 +107,6 @@
       orchestrator with a fake report marking the tagged test `skipped` while the
       run exits 0 → red
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: trust and ambiguity gates (#25).
-
 11. **An untrusted author is refused before anything happens** — proves the
     harness exits 3 on an issue not written by the repo owner, touching nothing,
     and proceeds with `--trust`
@@ -123,6 +115,15 @@ Increment: trust and ambiguity gates (#25).
     - Verified by: `./scripts/issue-to-pr.test.sh` — another author → exit 3, no
       `gh` call besides the reads, no worktree, no branch, no label created;
       `--trust` → the normal green run
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+Increment: trust and ambiguity gates (#25).
+
 12. **An ambiguous issue is sent back with the judge's reasoning** — proves a
     score ≤ 1 comments, labels and stops before any branch, and a clear issue
     sheds a stale label and proceeds
@@ -197,3 +198,6 @@ Increment: trust and ambiguity gates (#25).
 - #25 planned on `feat/trust-ambiguity-gates`, cut from `origin/main` after #37
   merged. Threshold corrected to "stop at ≤ 1" with the user in Phase 1; #25 and
   #23 edited to match. Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 11 done: an issue not written by the repo owner exits 3 after only the
+  two reads (`issue view`, `repo view`); `--trust` runs it (101 orchestrator
+  checks, exit 0). Next: slice 12, the ambiguity gate.

@@ -50,6 +50,7 @@ case "$1 $2" in
     jq -n --arg author "${FAKE_ISSUE_AUTHOR:-fernandodof}" \
       '{number: 7, title: "test(lib): cover a thing", body: "Add a test.",
         url: "https://example.test/issues/7", author: {login: $author}}' ;;
+  "repo view") echo "fernandodof" ;;
   "pr create") echo "https://example.test/pull/99" ;;
   "label list") printf '%s\n' ${FAKE_EXISTING_LABELS:-} ;;
   "label create"|"pr edit") ;;
@@ -147,7 +148,7 @@ run() {
     FAKE_LOG="$sb/log" \
     HEADLESS_TASK_OUT_DIR="$sb/runs" \
     ISSUE_TO_PR_WORKTREE_DIR="$sb/worktrees" \
-    "$sb/repo/scripts/issue-to-pr.sh" 7 > "$sb/log/stdout" 2> "$sb/log/stderr"
+    "$sb/repo/scripts/issue-to-pr.sh" ${RUN_ARGS:-} 7 > "$sb/log/stdout" 2> "$sb/log/stderr"
   echo $?
   set -e
 }
@@ -213,6 +214,23 @@ check "the body has the criteria table" "1" \
 check "a second run refuses the existing branch" "2" "$(run "$SB")"
 check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+# --- trust gate -------------------------------------------------------------
+SB="$(sandbox)"
+check "an issue by someone else is refused" "3" "$(run "$SB" FAKE_ISSUE_AUTHOR=a-stranger)"
+check "the refusal names the author" "1" "$(grep -c "written by 'a-stranger', not the repo owner 'fernandodof'" "$SB/log/stderr")"
+check "only reads reached GitHub" "issue view,repo view" \
+  "$(cut -d' ' -f1-2 "$SB/log/gh.log" | paste -sd, -)"
+check "no branch was created" "no" \
+  "$(git -C "$SB/repo" rev-parse --verify --quiet refs/heads/agent/issue-7 >/dev/null && echo yes || echo no)"
+check "no worktree was created" "no" "$([[ -d "$SB/worktrees/issue-7" ]] && echo yes || echo no)"
+check "no agent ran" "no" "$([[ -f "$SB/log/claude.calls" ]] && echo yes || echo no)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "--trust runs someone else's issue" "0" "$(RUN_ARGS=--trust run "$SB" FAKE_ISSUE_AUTHOR=a-stranger)"
+check "and opens its draft PR" "1" "$(grep -c '^pr create --draft ' "$SB/log/gh.log")"
 rm -rf "$SB"
 
 # --- red path ---------------------------------------------------------------

@@ -7,11 +7,16 @@
 # (scripts/implement-verdict.sh), pushes the branch and opens the PR — so nothing
 # in the PR's evidence comes from the agent's own report.
 #
+# Before any branch exists it refuses an issue the repo owner did not write
+# (unless --trust) and one the ambiguity judge cannot work from.
+#
 # Usage:
 #   ./scripts/issue-to-pr.sh 42
+#   ./scripts/issue-to-pr.sh --trust 42     # an issue someone else wrote
 #
 # Exit codes: 0 = draft PR opened, evidence green; 1 = red (PR opened if there was
-# anything to push); 2 = bad usage/environment.
+# anything to push); 2 = bad usage/environment; 3 = refused (untrusted author or
+# ambiguous issue), nothing created.
 
 set -euo pipefail
 
@@ -20,14 +25,16 @@ OUT_DIR="${HEADLESS_TASK_OUT_DIR:-$REPO_ROOT/.claude/headless-runs}"
 WORKTREE_DIR="${ISSUE_TO_PR_WORKTREE_DIR:-$(dirname "$REPO_ROOT")/$(basename "$REPO_ROOT")-worktrees}"
 BASE_REF="main"
 ISSUE=""
+TRUST=false
 
 usage() {
-  sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --trust) TRUST=true; shift ;;
     -h|--help) usage ;;
     -*) echo "issue-to-pr: unknown option $1" >&2; usage ;;
     *) ISSUE="$1"; shift ;;
@@ -53,6 +60,20 @@ gh issue view "$ISSUE" --json number,title,body,url,author > "$RUN_DIR/issue.jso
   echo "issue-to-pr: could not fetch issue #$ISSUE (not found, or gh is not authenticated)" >&2
   exit 2
 }
+
+# --- trust gate -------------------------------------------------------------
+# The issue body becomes the agent's prompt, so only the owner's issues run
+# unasked. Refusing costs nothing and writes nothing, so it comes first.
+OWNER="$(gh repo view --json owner --jq '.owner.login' 2>/dev/null)" || {
+  echo "issue-to-pr: could not read the repo owner" >&2
+  exit 2
+}
+AUTHOR="$(jq -r '.author.login // ""' "$RUN_DIR/issue.json")"
+if [[ "$AUTHOR" != "$OWNER" && "$TRUST" != true ]]; then
+  echo "issue-to-pr: refused — #$ISSUE was written by '${AUTHOR:-unknown}', not the repo owner '$OWNER'." >&2
+  echo "issue-to-pr: read it, then pass --trust to run it anyway" >&2
+  exit 3
+fi
 
 # --- worktree ---------------------------------------------------------------
 git -C "$REPO_ROOT" fetch --quiet origin "$BASE_REF"
