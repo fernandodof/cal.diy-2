@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
 
@@ -86,14 +86,6 @@
      `pwned` never appears; a missing path is never run; fake `yarn` printing
      `No test files found` with exit 0 is red — and verdict fixtures for each
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: acceptance criteria mapped to tests (#29).
-
 9. **Criteria reach the evidence with their tests' real status** — proves a
    criterion Phase 1 tags is looked up in the collector's own JSON report of the
    declared run and shown in the PR
@@ -105,6 +97,15 @@ Increment: acceptance criteria mapped to tests (#29).
      `yarn test` writes a JSON report to the path it is given; the evidence has the
      criterion found and `passed`, the body has the table; a design with no
      criteria is red — and a verdict fixture for the null rule
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+Increment: acceptance criteria mapped to tests (#29).
+
 10. **A criterion without a passing test is red, and says why** — proves every way
     a criterion can go uncovered names itself in the PR
     - `scripts/implement-verdict.sh` (untagged, not declared, not found, not
@@ -164,3 +165,9 @@ Increment: acceptance criteria mapped to tests (#29).
   is rejected and nothing it names is created.
 - #29 planned on `feat/acceptance-criteria`, cut from `origin/main` after #36
   merged. Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 9 done: criteria are parsed from `design.md` and looked up by file and
+  full name in the declared runs' JSON reports (85 orchestrator, 29 verdict
+  checks; both exit 0). The duplicate-name rule (all must pass) landed here with
+  the lookup. Found while testing: with no report on disk, the report loop's last
+  `[[ -f ]]` failed the pipeline under `pipefail`; now an explicit `if`.
+  Next: slice 10, the per-criterion reasons.

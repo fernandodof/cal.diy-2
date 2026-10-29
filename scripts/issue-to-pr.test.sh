@@ -78,7 +78,11 @@ gate() {
 if [[ -n "$phase" && "$mode" != nothing ]]; then
   mkdir -p specs/thing/gates
   case "$phase" in
-    1) echo "# design" > specs/thing/design.md; gate 1-research ;;
+    1)
+      # FAKE_CRITERIA replaces the acceptance criteria; set it empty to record none.
+      printf '# design\n\n## Acceptance Criteria\n\n%s\n\n## Technical Design\n' \
+        "${FAKE_CRITERIA-- [ ] the thing works — \`thing.test.ts\` › thing works}" > specs/thing/design.md
+      gate 1-research ;;
     2)
       # FAKE_VERIFY replaces the declared commands; set it empty to declare none.
       printf '# plan\n\n## Verification\n\n```sh\n%s\n```\n' \
@@ -112,6 +116,22 @@ FAKE
 echo "$* cwd=$PWD cache=${YARN_CACHE_FOLDER:-}" >> "$FAKE_LOG/yarn.log"
 [[ -n "${FAKE_YARN_FAIL:-}" && "$*" == *"$FAKE_YARN_FAIL"* ]] && { echo "boom"; exit 1; }
 [[ -n "${FAKE_YARN_NO_TESTS:-}" && "$1" == test ]] && { echo "No test files found, exiting with code 0"; exit 0; }
+# yarn test: write the JSON report the collector asks for, one test per file,
+# named and graded by FAKE_TEST_NAME / FAKE_TEST_STATUS.
+if [[ "$1" == test ]]; then
+  report="" files=()
+  for arg in "${@:2}"; do
+    case "$arg" in
+      --outputFile.json=*) report="${arg#--outputFile.json=}" ;;
+      --*) ;;
+      *) files+=("$arg") ;;
+    esac
+  done
+  [[ -n "$report" ]] && printf '%s\n' "${files[@]}" \
+    | jq -R --arg pwd "$PWD" --arg name "${FAKE_TEST_NAME:-thing works}" --arg status "${FAKE_TEST_STATUS:-passed}" \
+        '{name: "\($pwd)/\(.)", assertionResults: [{fullName: $name, status: $status}]}' \
+    | jq -s '{testResults: .}' > "$report"
+fi
 exit 0
 FAKE
   chmod +x "$sb/bin/"*
@@ -181,9 +201,15 @@ check "type-check was re-run by the harness in the worktree" "1" \
 check "the evidence carries the always-on and the declared checks" "type-check:always,biome:always,test: thing.test.ts:declared" \
   "$(jq -r '[.checks[] | "\(.name):\(.source)"] | join(",")' "$SB/runs/issue-7/evidence.json")"
 check "the harness ran the declared test in the worktree" "1" \
-  "$(grep -c "^test thing.test.ts cwd=$SB/worktrees/issue-7 " "$SB/log/yarn.log")"
+  "$(grep -c "^test thing.test.ts --reporter.* cwd=$SB/worktrees/issue-7 " "$SB/log/yarn.log")"
 check "the evidence records what Phase 2 declared" '["yarn test thing.test.ts"]' \
   "$(jq -c '.declared_commands' "$SB/runs/issue-7/evidence.json")"
+check "the declared run was asked for a JSON report" "1" \
+  "$(grep -c '^test thing.test.ts --reporter=default --reporter=json --outputFile.json=' "$SB/log/yarn.log")"
+check "the criterion was found in the harness's own run, and passed" "true passed true" \
+  "$(jq -r '.criteria[0] | "\(.test_found) \(.test_status) \(.declared)"' "$SB/runs/issue-7/evidence.json")"
+check "the body has the criteria table" "1" \
+  "$(grep -cF '| ✅ | the thing works | `thing.test.ts` › thing works | passed |' "$BODY")"
 check "a second run refuses the existing branch" "2" "$(run "$SB")"
 check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
@@ -247,7 +273,7 @@ yarn   test   thing.test.ts'
 SB="$(sandbox)"
 check "a plan with rejected commands exits 1" "1" "$(run "$SB" FAKE_VERIFY="$INJECTION")"
 check "every bad line is rejected" "4" "$(jq '.rejected_commands | length' "$SB/runs/issue-7/evidence.json")"
-check "the good line runs once, however it is spaced" "1" "$(grep -c '^test thing.test.ts cwd=' "$SB/log/yarn.log")"
+check "the good line runs once, however it is spaced" "1" "$(grep -c '^test thing.test.ts --reporter' "$SB/log/yarn.log")"
 check "no rejected command was executed" "none" \
   "$(ls "$SB/worktrees/issue-7"/pwned* "$SB/repo"/pwned* 2>/dev/null || echo none)"
 check "yarn never saw a rejected line" "0" "$(grep -cE 'pwned|curl|outside' "$SB/log/yarn.log" || true)"
@@ -265,6 +291,13 @@ SB="$(sandbox)"
 check "vitest finding no tests exits 1" "1" "$(run "$SB" FAKE_YARN_NO_TESTS=1)"
 check "an exit 0 with no tests found is not a pass" "null" \
   "$(jq '.checks[] | select(.source == "declared") | .exit_code' "$SB/runs/issue-7/evidence.json")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a design with no criteria exits 1" "1" "$(run "$SB" FAKE_CRITERIA="")"
+check "the evidence says none were recorded" "null" "$(jq '.criteria' "$SB/runs/issue-7/evidence.json")"
+check "the body says so" "1" \
+  "$(grep -c '^- criteria: Phase 1 recorded no acceptance criteria$' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 # --- a stopped sequence -----------------------------------------------------

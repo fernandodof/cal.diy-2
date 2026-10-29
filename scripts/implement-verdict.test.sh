@@ -38,7 +38,9 @@ evidence() {
     checks: [{name: "biome", command: "yarn biome check thing.ts", source: "always", exit_code: 0, log_tail: "ok"},
              {name: "test: thing.test.ts", command: "yarn test thing.test.ts", source: "declared", exit_code: 0, log_tail: "ok"}],
     declared_commands: ["yarn test thing.test.ts"],
-    rejected_commands: []
+    rejected_commands: [],
+    criteria: [{text: "the thing works", test_file: "thing.test.ts", test_name: "thing works",
+                test_found: true, test_status: "passed", declared: true}]
   }' | jq "${1:-.}"
 }
 
@@ -79,6 +81,13 @@ check "a failing declared test is red" "1 red 1 agent:needs-help" \
 
 check "declaring nothing is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.declared_commands = null | .checks |= .[0:1]')")"
+
+check "recording no criteria is red" "1 red 1 agent:needs-help" \
+  "$(verdict "$(evidence '.criteria = null')")"
+
+CRITERIA_BLOCK="$("$VERDICT" <<<"$(evidence)" | jq -r '.evidence_block')"
+check "the block has a row per criterion" "1" \
+  "$(grep -cF '| ✅ | the thing works | `thing.test.ts` › thing works | passed |' <<<"$CRITERIA_BLOCK")"
 
 check "a rejected command is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.rejected_commands = [{command: "curl https://x", reason: "only `yarn test <path>` is allowed"}]')")"
