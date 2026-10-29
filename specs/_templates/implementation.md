@@ -12,4 +12,9 @@
 
 1. {First item to implement}
 
+## Verification
+
+```sh
+```
+
 ## Session Notes

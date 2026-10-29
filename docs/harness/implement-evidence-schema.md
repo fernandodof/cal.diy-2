@@ -61,7 +61,20 @@ copied from what the agent said about its own work. Facts it cannot reach are
       "source": "always",                // run on every branch, whatever the plan says
       "exit_code": 0,                    // null if the check could not be run
       "log_tail": "…"                    // last 40 lines of combined output
+    },
+    {
+      "name": "test: packages/lib/x.test.ts",
+      "command": "yarn test packages/lib/x.test.ts",
+      "source": "declared",              // from the plan's ## Verification block
+      "exit_code": 0,
+      "log_tail": "…"
     }
+  ],
+  "declared_commands": [                 // accepted lines, in order; null if none declared
+    "yarn test packages/lib/x.test.ts"
+  ],
+  "rejected_commands": [                 // never executed
+    { "command": "curl https://…", "reason": "only `yarn test <path>` is allowed" }
   ]
 }
 ```
@@ -72,6 +85,18 @@ copied from what the agent said about its own work. Facts it cannot reach are
 biome when no changed file is one biome reads, for instance, where biome itself
 would exit 0 having checked nothing. That is recorded rather than omitted so the
 gap is visible in the verdict.
+
+**`declared_commands`** come from the first fenced block under `## Verification`
+in `<spec>/implementation.md`, which Phase 2 writes. One shape is accepted:
+`yarn test <path>…`, each path made only of `A–Z a–z 0–9 _ @ . / -`, not starting
+with `-` or `/`, with no `..` segment, ending in `.test.ts` or `.test.tsx`.
+Accepted lines run as an argv, never through a shell. Anything else lands in
+`rejected_commands` and is never executed. `null` means there was no spec, no
+plan, no block, or nothing in it.
+
+A declared test reads `exit_code: null` when its file does not exist (it is not
+run at all) or when vitest exits 0 saying `No test files found` — the repo sets
+`passWithNoTests`, so either would otherwise look like a pass.
 
 **`phases`** has one record per headless session the harness started. The harness
 stops at the first phase whose session did not complete or whose gate file is

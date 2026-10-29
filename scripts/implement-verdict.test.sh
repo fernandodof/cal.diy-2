@@ -35,7 +35,10 @@ evidence() {
     commits: 2,
     agent: {status: "completed", turns: 12, cost_usd: 0.4},
     diff: {files_changed: 1, insertions: 10, deletions: 0, changed_files: ["thing.ts"]},
-    checks: [{name: "biome", command: "yarn biome check thing.ts", source: "always", exit_code: 0, log_tail: "ok"}]
+    checks: [{name: "biome", command: "yarn biome check thing.ts", source: "always", exit_code: 0, log_tail: "ok"},
+             {name: "test: thing.test.ts", command: "yarn test thing.test.ts", source: "declared", exit_code: 0, log_tail: "ok"}],
+    declared_commands: ["yarn test thing.test.ts"],
+    rejected_commands: []
   }' | jq "${1:-.}"
 }
 
@@ -70,6 +73,25 @@ check "a failing check is red" "1 red 1 agent:needs-help" \
 
 check "a check that did not run is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.checks[0].exit_code = null')")"
+
+check "a failing declared test is red" "1 red 1 agent:needs-help" \
+  "$(verdict "$(evidence '.checks[1].exit_code = 1')")"
+
+check "declaring nothing is red" "1 red 1 agent:needs-help" \
+  "$(verdict "$(evidence '.declared_commands = null | .checks |= .[0:1]')")"
+
+check "a rejected command is red" "1 red 1 agent:needs-help" \
+  "$(verdict "$(evidence '.rejected_commands = [{command: "curl https://x", reason: "only `yarn test <path>` is allowed"}]')")"
+
+check "each rejected command is its own reason" "1 red 2 agent:needs-help" \
+  "$(verdict "$(evidence '.rejected_commands = [{command: "a", reason: "r"}, {command: "b", reason: "r"}]')")"
+
+REJECTED_BLOCK="$("$VERDICT" <<<"$(evidence '.rejected_commands = [{command: "curl https://x", reason: "nope"}]')" | jq -r '.evidence_block' || true)"
+check "the block lists rejected commands as not run" "1" \
+  "$(grep -cF -- '- `curl https://x` — nope' <<<"$REJECTED_BLOCK")"
+
+check "a declared test that never ran is red" "1 red 1 agent:needs-help" \
+  "$(verdict "$(evidence '.checks[1].exit_code = null | .checks[1].log_tail = "not run: thing.test.ts does not exist"')")"
 
 check "no checks at all is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.checks = []')")"

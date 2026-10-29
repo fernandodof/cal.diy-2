@@ -104,6 +104,11 @@ run_check() {
     (cd "$WORKTREE" && "$@") > "$log" 2>&1
     exit_code=$?
     set -e
+    # vitest.config.mts sets passWithNoTests, so a test path no project picks up
+    # exits 0. That is a check that did not run, not one that passed.
+    if [[ $exit_code -eq 0 ]] && grep -q "No test files found" "$log"; then
+      exit_code="null"
+    fi
   fi
   jq -n \
     --arg name "$name" \
@@ -114,6 +119,68 @@ run_check() {
     '{name: $name, command: $command, source: $source, exit_code: $exit_code, log_tail: $log_tail}'
   rm -f "$log"
 }
+
+# --- declared verification ---------------------------------------------------
+# Phase 2 lists the commands that verify its slices in the first fenced block
+# under `## Verification` in implementation.md. They are the agent's words, so
+# each is held to an allowlist and, if accepted, run as an argv — never through
+# a shell — so nothing in a line can expand, redirect or chain.
+
+# Print why a command is not allowed, or nothing if it is. The one shape allowed
+# is `yarn test <path>…`: a declared turbo filter could name a package with no
+# type-check task, which turbo reports as a pass.
+allowlist_reason() {
+  [[ $# -ge 3 && "$1" == "yarn" && "$2" == "test" ]] \
+    || { echo "only \`yarn test <path>\` is allowed"; return; }
+  shift 2
+  local path
+  for path in "$@"; do
+    if [[ ! "$path" =~ ^[A-Za-z0-9_@./-]+$ ]]; then
+      echo "\`$path\` has characters a test path does not"; return
+    elif [[ "$path" == -* || "$path" == /* ]]; then
+      echo "\`$path\` is a flag or an absolute path"; return
+    elif [[ "/$path/" == */../* ]]; then
+      echo "\`$path\` leaves the worktree"; return
+    elif [[ ! "$path" =~ \.test\.tsx?$ ]]; then
+      echo "\`$path\` is not a .test.ts or .test.tsx file"; return
+    fi
+  done
+}
+
+DECLARED_COMMANDS="null"
+REJECTED_COMMANDS="[]"
+DECLARED_ARGVS=()
+PLAN_FILE="$WORKTREE/$SPEC/implementation.md"
+if [[ -n "$SPEC" && -f "$PLAN_FILE" ]]; then
+  accepted=()
+  rejected=()
+  while IFS= read -r line; do
+    line="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<<"$line")"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    read -ra words <<<"$line"
+    line="${words[*]}"
+    printf '%s\n' ${accepted[@]+"${accepted[@]}"} | grep -qxF -- "$line" && continue
+    reason="$(allowlist_reason "${words[@]}")"
+    if [[ -z "$reason" ]]; then
+      accepted+=("$line")
+    else
+      rejected+=("$(jq -nc --arg command "$line" --arg reason "$reason" '{command: $command, reason: $reason}')")
+    fi
+  done < <(awk '
+    /^## Verification[[:space:]]*$/ { in_section = 1; next }
+    in_section && /^## /            { exit }
+    in_section && !in_block && /^```/ { in_block = 1; next }
+    in_block && /^```/              { exit }
+    in_block                        { print }' "$PLAN_FILE")
+
+  # A section that declares nothing at all stays null: there is nothing to say
+  # these changes were verified beyond the always-on checks.
+  if [[ ${#accepted[@]} -gt 0 || ${#rejected[@]} -gt 0 ]]; then
+    DECLARED_COMMANDS="$(printf '%s\n' ${accepted[@]+"${accepted[@]}"} | jq -R . | jq -sc 'map(select(. != ""))')"
+    REJECTED_COMMANDS="$(printf '%s\n' ${rejected[@]+"${rejected[@]}"} | jq -sc .)"
+    DECLARED_ARGVS=(${accepted[@]+"${accepted[@]}"})
+  fi
+fi
 
 CHECKS="$(
   {
@@ -131,6 +198,24 @@ CHECKS="$(
     else
       run_check biome always
     fi
+    for line in ${DECLARED_ARGVS[@]+"${DECLARED_ARGVS[@]}"}; do
+      read -ra words <<<"$line"
+      paths=("${words[@]:2}")
+      name="test: ${paths[0]}"
+      [[ ${#paths[@]} -gt 1 ]] && name+=" (+$((${#paths[@]} - 1)))"
+      missing=""
+      for path in "${paths[@]}"; do
+        [[ -f "$WORKTREE/$path" ]] || { missing="$path"; break; }
+      done
+      if [[ -n "$missing" ]]; then
+        # Never run: vitest would pass a path that matches nothing.
+        jq -n --arg name "$name" --arg command "$line" --arg missing "$missing" \
+          '{name: $name, command: $command, source: "declared", exit_code: null,
+            log_tail: "not run: \($missing) does not exist"}'
+      else
+        run_check "$name" declared "${words[@]}"
+      fi
+    done
   } | jq -s .
 )"
 
@@ -147,6 +232,8 @@ jq -n \
   --arg spec "$SPEC" \
   --argjson diff "$DIFF" \
   --argjson checks "$CHECKS" \
+  --argjson declared_commands "$DECLARED_COMMANDS" \
+  --argjson rejected_commands "$REJECTED_COMMANDS" \
   '{
     schema: "implement-evidence/1",
     collected_at: $collected_at,
@@ -160,5 +247,7 @@ jq -n \
     agent: $agent,
     phases: $phases,
     diff: $diff,
-    checks: $checks
+    checks: $checks,
+    declared_commands: $declared_commands,
+    rejected_commands: $rejected_commands
   }'

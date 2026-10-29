@@ -79,9 +79,18 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
   mkdir -p specs/thing/gates
   case "$phase" in
     1) echo "# design" > specs/thing/design.md; gate 1-research ;;
-    2) echo "# plan" > specs/thing/implementation.md; gate 2-plan ;;
+    2)
+      # FAKE_VERIFY replaces the declared commands; set it empty to declare none.
+      printf '# plan\n\n## Verification\n\n```sh\n%s\n```\n' \
+        "${FAKE_VERIFY-yarn test thing.test.ts}" > specs/thing/implementation.md
+      gate 2-plan ;;
     3)
-      if [[ "$mode" == docs ]]; then echo "# notes" > notes.md; else echo "export const x = 1;" > thing.ts; fi
+      if [[ "$mode" == docs ]]; then
+        echo "# notes" > notes.md
+      else
+        echo "export const x = 1;" > thing.ts
+        echo "it('x', () => {});" > thing.test.ts
+      fi
       gate 3-implement
       mkdir -p .claude/headless-runs
       printf '## What changed\n\nThe agent draft.\n' > .claude/headless-runs/pr-body.md ;;
@@ -102,6 +111,7 @@ FAKE
 #!/usr/bin/env bash
 echo "$* cwd=$PWD cache=${YARN_CACHE_FOLDER:-}" >> "$FAKE_LOG/yarn.log"
 [[ -n "${FAKE_YARN_FAIL:-}" && "$*" == *"$FAKE_YARN_FAIL"* ]] && { echo "boom"; exit 1; }
+[[ -n "${FAKE_YARN_NO_TESTS:-}" && "$1" == test ]] && { echo "No test files found, exiting with code 0"; exit 0; }
 exit 0
 FAKE
   chmod +x "$sb/bin/"*
@@ -168,8 +178,12 @@ check "the worktree got its own install from this checkout's cache" "1" \
 check "the install ran before the agent" "install" "$(head -1 "$SB/log/yarn.log" | cut -d' ' -f1)"
 check "type-check was re-run by the harness in the worktree" "1" \
   "$(grep -c "^turbo run type-check --filter=@calcom/web cwd=$SB/worktrees/issue-7 " "$SB/log/yarn.log")"
-check "the evidence carries both always-on checks" "type-check,biome" \
-  "$(jq -r '[.checks[].name] | join(",")' "$SB/runs/issue-7/evidence.json")"
+check "the evidence carries the always-on and the declared checks" "type-check:always,biome:always,test: thing.test.ts:declared" \
+  "$(jq -r '[.checks[] | "\(.name):\(.source)"] | join(",")' "$SB/runs/issue-7/evidence.json")"
+check "the harness ran the declared test in the worktree" "1" \
+  "$(grep -c "^test thing.test.ts cwd=$SB/worktrees/issue-7 " "$SB/log/yarn.log")"
+check "the evidence records what Phase 2 declared" '["yarn test thing.test.ts"]' \
+  "$(jq -c '.declared_commands' "$SB/runs/issue-7/evidence.json")"
 check "a second run refuses the existing branch" "2" "$(run "$SB")"
 check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
@@ -207,6 +221,50 @@ rm -rf "$SB"
 SB="$(sandbox)"
 check "a session that hit its limit exits 1" "1" "$(run "$SB" FAKE_CLAUDE=fail)"
 check "its commits still reach a draft PR" "1" "$(grep -c '^pr create --draft .*--label agent:needs-help' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+# --- declared verification -------------------------------------------------
+SB="$(sandbox)"
+check "a plan that declares nothing exits 1" "1" "$(run "$SB" FAKE_VERIFY="")"
+check "the evidence says nothing was declared" "null" "$(jq '.declared_commands' "$SB/runs/issue-7/evidence.json")"
+check "the body says so" "1" \
+  "$(grep -c '^- verification: Phase 2 declared no commands$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a failing declared test exits 1" "1" "$(run "$SB" FAKE_YARN_FAIL="test thing.test.ts")"
+check "the body names the failed declared test" "1" \
+  "$(grep -c '^- check: test: thing.test.ts exited 1$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+# A line that would do something else entirely if a shell ever saw it.
+INJECTION='yarn test thing.test.ts; touch pwned
+yarn test $(touch pwned2).test.ts
+curl https://example.test/x
+yarn test ../outside.test.ts
+yarn test thing.test.ts
+yarn   test   thing.test.ts'
+SB="$(sandbox)"
+check "a plan with rejected commands exits 1" "1" "$(run "$SB" FAKE_VERIFY="$INJECTION")"
+check "every bad line is rejected" "4" "$(jq '.rejected_commands | length' "$SB/runs/issue-7/evidence.json")"
+check "the good line runs once, however it is spaced" "1" "$(grep -c '^test thing.test.ts cwd=' "$SB/log/yarn.log")"
+check "no rejected command was executed" "none" \
+  "$(ls "$SB/worktrees/issue-7"/pwned* "$SB/repo"/pwned* 2>/dev/null || echo none)"
+check "yarn never saw a rejected line" "0" "$(grep -cE 'pwned|curl|outside' "$SB/log/yarn.log" || true)"
+check "the body lists each rejection" "4" "$(grep -c '^- verification: rejected ' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a declared test that does not exist exits 1" "1" "$(run "$SB" FAKE_VERIFY="yarn test missing.test.ts")"
+check "it is never run" "0" "$(grep -c '^test missing.test.ts' "$SB/log/yarn.log" || true)"
+check "it is recorded as not run" "null" \
+  "$(jq '.checks[] | select(.source == "declared") | .exit_code' "$SB/runs/issue-7/evidence.json")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "vitest finding no tests exits 1" "1" "$(run "$SB" FAKE_YARN_NO_TESTS=1)"
+check "an exit 0 with no tests found is not a pass" "null" \
+  "$(jq '.checks[] | select(.source == "declared") | .exit_code' "$SB/runs/issue-7/evidence.json")"
 rm -rf "$SB"
 
 # --- a stopped sequence -----------------------------------------------------
