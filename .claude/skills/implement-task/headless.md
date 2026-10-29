@@ -38,7 +38,12 @@ question you can answer with a reasonable, stated assumption is not a blocker.
 
 - **Phase 1** reads the issue from the prompt. The spec folder is your choice, as
   in the phase file — extend an existing one where it fits. The harness finds it
-  afterwards from the `gates/1-research.md` you add, so add exactly one.
+  afterwards from the `gates/1-research.md` you add, so add exactly one. Fill
+  `## Acceptance Criteria` in `design.md` with one item per requirement in the
+  issue, each tagged with the test that will prove it, in the format the
+  template gives. The test may not exist yet — Phase 3 writes it — but its full
+  name must match exactly then: the harness looks it up by that name in its own
+  run, and only a `passed` result counts.
 - **Phase 2** reads `<spec>/design.md` from the `--spec` it is given. The base is
   `--base`; do not ask for it. The harness has already created and checked out
   the working branch, so skip the "branch from the base" step — but still commit
@@ -47,6 +52,8 @@ question you can answer with a reasonable, stated assumption is not a blocker.
   slices' "Verified by" names. The harness runs exactly these, after Phase 3,
   and nothing else is accepted: no other command, no flags, no globs, no shell
   syntax. A path that does not exist by the end of Phase 3 counts as a failure.
+  Declare every test file an acceptance criterion names: an undeclared file is
+  not run, and its criteria count as uncovered.
 - **Phase 3** reads `<spec>/implementation.md`. Commit each slice as the phase
   file says, and set `## Status: complete` (or `blocked`) as usual. Then, instead
   of pushing and opening the PR:

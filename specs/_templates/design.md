@@ -12,6 +12,14 @@
 
 - As a {user type}, I want to {action} so that {benefit}
 
+## Acceptance Criteria
+
+{Optional. One item per requirement, tagged with the test that proves it: a
+backticked test file, ` › `, then the test's full name as vitest reports it (the
+`describe` titles and the `it` title, joined by spaces).}
+
+- [ ] {What must be true} — `{path/to/file.test.ts}` › {describe title} {it title}
+
 ## Technical Design
 
 ### Database Changes

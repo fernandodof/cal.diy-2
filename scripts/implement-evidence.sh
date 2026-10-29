@@ -182,8 +182,14 @@ if [[ -n "$SPEC" && -f "$PLAN_FILE" ]]; then
   fi
 fi
 
+# Declared runs also write vitest's JSON report, one per command, which is what
+# acceptance criteria are judged against: an exit code cannot see a skipped test.
+REPORT_DIR="$(mktemp -d)"
+trap 'rm -rf "$REPORT_DIR"' EXIT
+
 CHECKS="$(
   {
+    report=0
     # Only @calcom/web has a type-check task, and it compiles what it imports,
     # so it is the one that covers changes in packages/lib, features and trpc.
     run_check type-check always yarn turbo run type-check --filter=@calcom/web
@@ -213,11 +219,52 @@ CHECKS="$(
           '{name: $name, command: $command, source: "declared", exit_code: null,
             log_tail: "not run: \($missing) does not exist"}'
       else
-        run_check "$name" declared "${words[@]}"
+        report=$((report + 1))
+        run_check "$name" declared "${words[@]}" \
+          --reporter=default --reporter=json "--outputFile.json=$REPORT_DIR/$report.json"
       fi
     done
   } | jq -s .
 )"
+
+# --- acceptance criteria -----------------------------------------------------
+# Each item under `## Acceptance Criteria` in design.md, matched by file and
+# vitest full name against the declared runs' reports. A name that matches more
+# than one test only counts as passed if all of them did.
+CRITERIA="null"
+DESIGN_FILE="$WORKTREE/$SPEC/design.md"
+if [[ -n "$SPEC" && -f "$DESIGN_FILE" ]]; then
+  ITEMS="$(awk '
+    /^## Acceptance Criteria[[:space:]]*$/ { in_section = 1; next }
+    in_section && /^## /                  { exit }
+    in_section && /^- \[[ xX]\] /         { print }' "$DESIGN_FILE" | jq -R . | jq -sc .)"
+  if [[ "$(jq 'length' <<<"$ITEMS")" -gt 0 ]]; then
+    # vitest names files by absolute path, which may be the resolved one.
+    RESULTS="$(
+      for f in "$REPORT_DIR"/*.json; do
+        # A run that crashed before reporting leaves no file, or a broken one;
+        # its tests are then simply not found.
+        if [[ -f "$f" ]]; then
+          jq -c '[.testResults[]? | .name as $file | .assertionResults[]? | {file: $file, name: .fullName, status}]' "$f" 2>/dev/null || true
+        fi
+      done | jq -sc --arg wt "$WORKTREE/" --arg real "$(cd "$WORKTREE" && pwd -P)/" \
+        'add // [] | map(.file |= (ltrimstr($real) | ltrimstr($wt)))'
+    )"
+    DECLARED_PATHS="$(jq -c '[(. // [])[] | split(" ") | .[2:][]]' <<<"$DECLARED_COMMANDS")"
+    CRITERIA="$(jq -c --argjson results "$RESULTS" --argjson declared "$DECLARED_PATHS" '
+      map(sub("^- \\[[ xX]\\] "; "")
+        | (capture("^(?<text>.*) — `(?<file>[^`]+)` › (?<name>.+)$") // {text: ., file: null, name: null})
+        | (.text |= gsub("^\\s+|\\s+$"; "")) | (.name |= (if . then gsub("^\\s+|\\s+$"; "") else . end))
+        | . as $c
+        | [$results[] | select(.file == $c.file and .name == $c.name) | .status] as $hits
+        | {text: .text, test_file: .file, test_name: .name,
+           test_found: ($hits | length > 0),
+           test_status: (if ($hits | length) == 0 then null
+                         elif all($hits[]; . == "passed") then "passed"
+                         else first($hits[] | select(. != "passed")) end),
+           declared: ($c.file != null and any($declared[]; . == $c.file))})' <<<"$ITEMS")"
+  fi
+fi
 
 jq -n \
   --arg collected_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -234,6 +281,7 @@ jq -n \
   --argjson checks "$CHECKS" \
   --argjson declared_commands "$DECLARED_COMMANDS" \
   --argjson rejected_commands "$REJECTED_COMMANDS" \
+  --argjson criteria "$CRITERIA" \
   '{
     schema: "implement-evidence/1",
     collected_at: $collected_at,
@@ -249,5 +297,6 @@ jq -n \
     diff: $diff,
     checks: $checks,
     declared_commands: $declared_commands,
-    rejected_commands: $rejected_commands
+    rejected_commands: $rejected_commands,
+    criteria: $criteria
   }'

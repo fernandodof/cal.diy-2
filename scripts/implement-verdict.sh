@@ -73,6 +73,15 @@ POLICY='
     (if (.commits // 0) == 0 then "commits: the branch has no commits beyond the base" else empty end),
     (if ((.checks // []) | length) == 0 then "checks: none were run" else empty end),
     (if .declared_commands == null then "verification: Phase 2 declared no commands" else empty end),
+    (if .criteria == null then "criteria: Phase 1 recorded no acceptance criteria" else empty end),
+    # One reason per uncovered criterion: the first of these that applies.
+    ( (.criteria // [])[]
+      | "criterion `\(.text)`: " as $p
+      | if .test_file == null then $p + "no test named"
+        elif .declared != true then $p + "`\(.test_file)` is not among the declared tests"
+        elif .test_found != true then $p + "`\(.test_name)` was not found in `\(.test_file)`"
+        elif .test_status != "passed" then $p + "`\(.test_name)` was reported as \(.test_status)"
+        else empty end ),
     ( (.rejected_commands // [])[] | "verification: rejected `\(.command)` — \(.reason)" ),
     ( (.checks // [])[]
       | if .exit_code == null then "check: \(.name) did not run"
@@ -104,6 +113,15 @@ RENDER='
       (if $ev.phases then
         "### Phases\n\n| Phase | Session | Gate | Turns | Cost |\n|---|---|---|---|---|\n"
         + ($ev.phases | map("| \(.phase) | \(.status // "no summary") | \(.outcome // "missing") | \(.turns // "–") | \(if .cost_usd then "$\(.cost_usd)" else "–" end) |") | join("\n"))
+        + "\n"
+      else empty end),
+      (if $ev.criteria then
+        "### Acceptance criteria\n\n| | Criterion | Test | Status |\n|---|---|---|---|\n"
+        + ($ev.criteria | map(
+            "| \(if .test_status == "passed" then "✅" else "❌" end) | \(.text) | "
+            + (if .test_file then "\(.test_file | code) › \(.test_name)" else "_none named_" end)
+            + " | \(.test_status // (if .test_file == null then "untagged" elif .declared | not then "not declared" else "not found" end)) |")
+          | join("\n"))
         + "\n"
       else empty end),
       "### Checks",

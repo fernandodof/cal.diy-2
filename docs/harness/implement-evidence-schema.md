@@ -75,6 +75,16 @@ copied from what the agent said about its own work. Facts it cannot reach are
   ],
   "rejected_commands": [                 // never executed
     { "command": "curl https://…", "reason": "only `yarn test <path>` is allowed" }
+  ],
+  "criteria": [                          // design.md's ## Acceptance Criteria; null if none
+    {
+      "text": "a booking without a reason is refused",
+      "test_file": "packages/lib/x.test.ts",   // null if the item names no test
+      "test_name": "x refuses a missing reason",
+      "test_found": true,                // (file, full name) appeared in the harness's run
+      "test_status": "passed",           // passed | failed | skipped | todo | null if not found
+      "declared": true                   // test_file is a path in declared_commands
+    }
   ]
 }
 ```
@@ -97,6 +107,16 @@ plan, no block, or nothing in it.
 A declared test reads `exit_code: null` when its file does not exist (it is not
 run at all) or when vitest exits 0 saying `No test files found` — the repo sets
 `passWithNoTests`, so either would otherwise look like a pass.
+
+**`criteria`** are the `- [ ]` items under `## Acceptance Criteria` in
+`<spec>/design.md`. The tag is everything after the last ` — `: a backticked test
+file, ` › `, then vitest's full name for the test (the `describe` titles and the
+`it` title joined by spaces), matched exactly. Statuses come from vitest's JSON
+report of the declared runs, which the collector requests itself
+(`--reporter=default --reporter=json --outputFile.json=…`) — not from the run's
+exit code, which is 0 for a file with skipped or todo tests. A name matching
+several tests is `passed` only if all of them passed. A tagged file that is not
+declared is never run, so its criterion has no status.
 
 **`phases`** has one record per headless session the harness started. The harness
 stops at the first phase whose session did not complete or whose gate file is
