@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: complete
+## Status: planned
 
 ## Completed
 
@@ -92,6 +92,28 @@
 
 ## Next Steps
 
+Increment: acceptance criteria mapped to tests (#29).
+
+9. **Criteria reach the evidence with their tests' real status** — proves a
+   criterion Phase 1 tags is looked up in the collector's own JSON report of the
+   declared run and shown in the PR
+   - `specs/_templates/design.md`, `.claude/skills/implement-task/headless.md`,
+     `scripts/implement-evidence.sh` (JSON reporter flags on declared runs, parse
+     `## Acceptance Criteria`, `criteria`), `scripts/implement-verdict.sh`
+     (`criteria: null` is red, criteria table)
+   - Verified by: `./scripts/issue-to-pr.test.sh` — fake Phase 1 tags a test, fake
+     `yarn test` writes a JSON report to the path it is given; the evidence has the
+     criterion found and `passed`, the body has the table; a design with no
+     criteria is red — and a verdict fixture for the null rule
+10. **A criterion without a passing test is red, and says why** — proves every way
+    a criterion can go uncovered names itself in the PR
+    - `scripts/implement-verdict.sh` (untagged, not declared, not found, not
+      passed), `scripts/implement-evidence.sh` (duplicate names),
+      `docs/harness/implement-evidence-schema.md`
+    - Verified by: verdict fixtures for each reason and for skipped/todo; the
+      orchestrator with a fake report marking the tagged test `skipped` while the
+      run exits 0 → red
+
 ## Session Notes
 
 - Base branch: `main` (confirmed at the Phase 2 gate). Working branch
@@ -140,3 +162,5 @@
   `No test files found` is recorded as not run (27 verdict, 79 orchestrator
   checks; both suites exit 0). An injection set — `;`, `$(…)`, `curl`, `..` —
   is rejected and nothing it names is created.
+- #29 planned on `feat/acceptance-criteria`, cut from `origin/main` after #36
+  merged. Base branch: `main` (confirmed at the Phase 2 gate).

@@ -392,3 +392,110 @@ Five non-test files, no orchestrator change: the collector already gets `--spec`
 - Any command shape beyond `yarn test` — widening the allowlist is a policy change
   for its own issue.
 - Acceptance criteria → tests mapping (#29), which consumes these results.
+
+---
+
+# Increment: acceptance criteria mapped to tests (#29)
+
+Tracks [#29](https://github.com/fernandodof/cal.diy-2/issues/29). Builds on #28
+(merged in #36).
+
+## Overview
+
+Phase 1 writes the issue's requirements as an `## Acceptance Criteria` checklist
+in `design.md`, each item tagged with the test that proves it. The collector runs
+the declared tests with vitest's JSON reporter added, and records for each
+criterion whether its test was found in that run and what status it had. The
+verdict is red for any criterion without a found, **passed** test, and the block
+shows the criteria as a table.
+
+## Problem Statement
+
+#28 proves the declared test files pass, not that they test what the issue asked.
+A green file can still leave a requirement uncovered, and a file exit code cannot
+see inside it: a real run of a probe with `it.skip` and `it.todo` beside one
+passing test **exits 0** (`yarn test`, 2026-10-29), while the JSON reporter marks
+them `skipped` and `todo`.
+
+## Technical Design
+
+### The section and its tag
+
+`specs/_templates/design.md` gains an optional section after `## User Stories`:
+
+```markdown
+## Acceptance Criteria
+
+- [ ] <what must be true> — `<path/to/file.test.ts>` › <full test name>
+```
+
+The tag is everything after the last ` — `: a backticked test file path, ` › `,
+then the test's **full name** as vitest reports it (`fullName`: the `describe`
+titles and the `it` title joined by spaces — e.g. `uniqueBy should remove
+duplicates based on single key` for `packages/lib/array.test.ts`). An item without
+a tag is untagged. Interactive Phase 1 may leave the section out; `headless.md`'s
+Phase 1 bullet gains: one criterion per requirement in the issue, each tagged;
+Phase 2 declares every tagged file.
+
+### Collector
+
+- Each declared command runs with
+  `--reporter=default --reporter=json --outputFile.json=<tmp>` appended by the
+  collector — collector-owned flags, so the allowlist on what Phase 2 writes is
+  unchanged. The console output still feeds `log_tail` and the
+  `No test files found` rule (confirmed: both reporters run together and the JSON
+  lands in the file, `packages/lib/array.test.ts` real run).
+- The JSON reports' `testResults[].name` are absolute; they are made relative to
+  the worktree and keyed by `(file, fullName)` → `status`.
+- New `criteria` (`null` if the section is missing or has no items, or there is
+  no spec):
+
+```jsonc
+"criteria": [
+  { "text": "…", "test_file": "packages/lib/x.test.ts", "test_name": "x does y",
+    "test_found": true,          // (file, name) appeared in the collector's run
+    "test_status": "passed",     // passed | failed | skipped | todo | null if not found
+    "declared": true }           // test_file is among the declared commands' paths
+]
+```
+
+  Untagged items have `test_file`, `test_name` and `test_status` `null` and
+  `test_found: false`.
+
+### Verdict
+
+- `criteria == null` → red: "criteria: Phase 1 recorded no acceptance criteria".
+- Per criterion, the first that applies:
+  - untagged → "criterion `<text>`: no test named";
+  - not `declared` → "criterion `<text>`: `<file>` is not among the declared tests";
+  - not `test_found` → "criterion `<text>`: `<name>` was not found in `<file>`";
+  - `test_status != "passed"` → "criterion `<text>`: `<name>` was `<status>`".
+- Block gains a Criteria table: criterion, test, status (✅ only for `passed`).
+
+### Files
+
+| File | Change |
+|---|---|
+| `specs/_templates/design.md` | the optional `## Acceptance Criteria` section and tag format |
+| `.claude/skills/implement-task/headless.md` | Phase 1 fills it; Phase 2 declares every tagged file |
+| `scripts/implement-evidence.sh` | JSON reporter on declared runs, parse criteria, `criteria` field |
+| `scripts/implement-verdict.sh` | criteria rules and table |
+| `docs/harness/implement-evidence-schema.md` | `criteria` and the tag format |
+| `scripts/implement-verdict.test.sh`, `scripts/issue-to-pr.test.sh` | fixtures; fake `yarn test` writes a JSON report |
+
+Five non-test files.
+
+## Edge Cases
+
+- **A tagged file not declared** is not run by the harness — the criterion is red
+  with its own reason rather than the collector widening what it runs.
+- **Two tests with the same full name in one file** → found if any matches; the
+  status is `passed` only if all matching ones passed.
+- **A declared run that crashes before reporting** (no JSON file) → its criteria
+  are not found, red; the check itself is already red on exit code.
+- **Name matching is exact** (after trimming). A renamed test reads as not found —
+  that is the point.
+
+## Out of Scope
+
+- Judging whether a test really proves its criterion — the review phase (#30).
