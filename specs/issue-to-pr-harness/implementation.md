@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -116,14 +116,6 @@
       `gh` call besides the reads, no worktree, no branch, no label created;
       `--trust` → the normal green run
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: trust and ambiguity gates (#25).
-
 12. **An ambiguous issue is sent back with the judge's reasoning** — proves a
     score ≤ 1 comments, labels and stops before any branch, and a clear issue
     sheds a stale label and proceeds
@@ -134,6 +126,12 @@ Increment: trust and ambiguity gates (#25).
       one comment carrying the reasoning, the label, exit 3, no worktree; score 0
       likewise; score 2 → proceeds; a parse failure → exit 2, no comment; a clear
       issue that carried the label has it removed
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -201,3 +199,9 @@ Increment: trust and ambiguity gates (#25).
 - Slice 11 done: an issue not written by the repo owner exits 3 after only the
   two reads (`issue view`, `repo view`); `--trust` runs it (101 orchestrator
   checks, exit 0). Next: slice 12, the ambiguity gate.
+- Slice 12 done: a score ≤ 1 comments the judge's reasoning, labels
+  `agent:needs-clarification` and exits 3 before any branch; no score is exit 2
+  with no comment; a clear issue sheds a stale label (123 orchestrator checks,
+  exit 0). Label setup moved up between the gates. The fake `gh` now remembers
+  labels it created — with labels set up before the branch check, the test's
+  second run would otherwise have recreated them, which real GitHub would not.

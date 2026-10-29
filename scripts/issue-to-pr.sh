@@ -56,7 +56,7 @@ BRANCH="agent/issue-$ISSUE"
 WORKTREE="$WORKTREE_DIR/$RUN_ID"
 mkdir -p "$RUN_DIR"
 
-gh issue view "$ISSUE" --json number,title,body,url,author > "$RUN_DIR/issue.json" 2>/dev/null || {
+gh issue view "$ISSUE" --json number,title,body,url,author,labels > "$RUN_DIR/issue.json" 2>/dev/null || {
   echo "issue-to-pr: could not fetch issue #$ISSUE (not found, or gh is not authenticated)" >&2
   exit 2
 }
@@ -73,6 +73,54 @@ if [[ "$AUTHOR" != "$OWNER" && "$TRUST" != true ]]; then
   echo "issue-to-pr: refused — #$ISSUE was written by '${AUTHOR:-unknown}', not the repo owner '$OWNER'." >&2
   echo "issue-to-pr: read it, then pass --trust to run it anyway" >&2
   exit 3
+fi
+
+# --- labels -----------------------------------------------------------------
+# Created on first use, so a fresh fork needs no setup. Existing labels are left
+# as they are: someone may have recoloured or described them.
+EXISTING_LABELS="$(gh label list --limit 200 --json name --jq '.[].name')"
+while IFS='|' read -r name color description; do
+  grep -qxF "$name" <<<"$EXISTING_LABELS" && continue
+  gh label create "$name" --color "$color" --description "$description" >/dev/null
+done <<'LABELS'
+agent:implement|5319E7|Hand this issue to the issue-to-PR harness
+agent:needs-clarification|FBCA04|Too ambiguous for the harness to implement as written
+agent:needs-help|D93F0B|The harness opened this PR, but its evidence is red
+LABELS
+
+# --- ambiguity gate ---------------------------------------------------------
+# The scorer's rubric runs 3 (unambiguous) down to 0 (unactionable). At 1 or
+# below a contributor would have to guess the key decision, so the issue goes
+# back to its author with the judge's reasoning before any work starts.
+SCORER="${ISSUE_TO_PR_SCORER:-$REPO_ROOT/evals/issue-ambiguity/score.sh}"
+"$SCORER" --issue "$(gh repo view --json nameWithOwner --jq '.nameWithOwner')#$ISSUE" \
+  > "$RUN_DIR/ambiguity.json" 2>/dev/null || true
+SCORE="$(jq -r '.score // "null"' "$RUN_DIR/ambiguity.json" 2>/dev/null || echo null)"
+REASONING="$(jq -r '.reasoning // ""' "$RUN_DIR/ambiguity.json" 2>/dev/null || true)"
+
+# A judge that did not answer has said nothing about the issue.
+if [[ ! "$SCORE" =~ ^[0-3]$ ]]; then
+  echo "issue-to-pr: the ambiguity scorer gave no score; see $RUN_DIR/ambiguity.json" >&2
+  exit 2
+fi
+
+if [[ "$SCORE" -le 1 ]]; then
+  gh issue comment "$ISSUE" --body "$(cat <<COMMENT
+The issue-to-PR harness did not start on this issue: it scored **$SCORE / 3** for clarity, where 2 is the least it works from.
+
+> $REASONING
+
+Once the issue answers that, re-run \`./scripts/issue-to-pr.sh $ISSUE\`. The scale is in \`evals/issue-ambiguity/RUBRIC.md\`.
+COMMENT
+)" >/dev/null
+  gh issue edit "$ISSUE" --add-label agent:needs-clarification >/dev/null
+  echo "issue-to-pr: refused — #$ISSUE scored $SCORE/3 for clarity: $REASONING" >&2
+  exit 3
+fi
+
+# Clear enough now: drop the label an earlier, vaguer version of the issue earned.
+if jq -e '.labels // [] | any(.name == "agent:needs-clarification")' "$RUN_DIR/issue.json" >/dev/null; then
+  gh issue edit "$ISSUE" --remove-label agent:needs-clarification >/dev/null
 fi
 
 # --- worktree ---------------------------------------------------------------
@@ -176,19 +224,6 @@ if [[ "$(jq -r '.commits // 0' "$RUN_DIR/evidence.json")" -eq 0 ]]; then
   jq -r '.reasons[] | "  - " + .' "$RUN_DIR/verdict.json" >&2
   exit 1
 fi
-
-# --- labels -----------------------------------------------------------------
-# Created on first use, so a fresh fork needs no setup. Existing labels are left
-# as they are: someone may have recoloured or described them.
-EXISTING_LABELS="$(gh label list --limit 200 --json name --jq '.[].name')"
-while IFS='|' read -r name color description; do
-  grep -qxF "$name" <<<"$EXISTING_LABELS" && continue
-  gh label create "$name" --color "$color" --description "$description" >/dev/null
-done <<'LABELS'
-agent:implement|5319E7|Hand this issue to the issue-to-PR harness
-agent:needs-clarification|FBCA04|Too ambiguous for the harness to implement as written
-agent:needs-help|D93F0B|The harness opened this PR, but its evidence is red
-LABELS
 
 # --- pull request -----------------------------------------------------------
 git -C "$WORKTREE" push --quiet -u origin "$BRANCH"
