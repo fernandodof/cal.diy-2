@@ -587,3 +587,74 @@ One non-test file.
 
 - Changing the rubric or the scorer.
 - Trust beyond the owner (a list of collaborators) — `--trust` covers it.
+
+---
+
+# Increment: base-branch override from the issue (#26)
+
+Tracks [#26](https://github.com/fernandodof/cal.diy-2/issues/26). Builds on #25
+(merged in #38).
+
+## Overview
+
+The base branch stays `main` unless the issue names another, with a
+`base:<branch>` label or a `Base: <branch>` line in its body. The harness
+resolves it right after the trust gate, refuses a malformed, conflicting or
+missing base as an environment error (exit 2) before anything is created, and
+otherwise uses it everywhere `main` is used today.
+
+## Problem Statement
+
+This fork has long-lived feature branches (`phases/3-implement.md`, "Never assume
+`main`"); the interactive flow asks for the base at Phase 2, but the harness
+hardcodes `BASE_REF="main"` (`scripts/issue-to-pr.sh:26`), so an issue that
+belongs on a feature branch gets a PR against the wrong one.
+
+## Technical Design
+
+### One variable already carries it
+
+`BASE_REF` is the only source for every base use: the fetch and the worktree cut
+(`scripts/issue-to-pr.sh:127,134`), the spec lookup (`:166`), the phase prompts'
+`--base` (`:177`), the collector's diff (`:209`) and `gh pr create --base`
+(`:255`). Resolving it from the issue is the whole change. Recording it in
+`implementation.md` is already done: headless Phase 2 is given `--base` and told
+to record it under `## Session Notes` (`.claude/skills/implement-task/headless.md:50`).
+
+### Resolution (after the trust gate, before labels and scoring)
+
+- From labels: every label named `base:<branch>`.
+- From the body: every line matching `^Base: *<branch> *$`, the branch optionally
+  in backticks.
+- No candidates → `main`. All candidates equal → that branch. Different
+  candidates → exit 2, naming them: guessing between two bases is how the wrong
+  PR gets opened.
+- **Validated before use**, since an issue author supplies it and it reaches git
+  and the agent's prompt: `^[A-Za-z0-9._/-]+$` **and** `git check-ref-format
+  --branch`. git alone is not enough — it accepts `x;rm` (checked).
+- **Must exist on the remote**: `git ls-remote --exit-code --heads origin <base>`,
+  else exit 2, "no fallback to main".
+
+It runs before the ambiguity gate so a run that cannot succeed costs no judge
+call and posts no comment; after the trust gate, because that one writes nothing
+and must stay first.
+
+### Files
+
+| File | Change |
+|---|---|
+| `scripts/issue-to-pr.sh` | resolve, validate and check the base; usage line |
+| `scripts/issue-to-pr.test.sh` | a second branch on the sandbox origin; label, body, conflict, malformed and missing cases |
+
+## Edge Cases
+
+- **Label and body agree** → fine; **disagree** → exit 2.
+- **`Base:` inside a code block** in the body still matches — line-based, like
+  the rest of the harness's parsing. Acceptable: writing that line is a
+  deliberate act.
+- **A base equal to the working branch** (`agent/issue-N`) → exit 2; it would
+  be cut from itself.
+
+## Out of Scope
+
+- A `--base` flag on the harness itself — the issue is the record of intent.

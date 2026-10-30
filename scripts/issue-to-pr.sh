@@ -14,6 +14,9 @@
 #   ./scripts/issue-to-pr.sh 42
 #   ./scripts/issue-to-pr.sh --trust 42     # an issue someone else wrote
 #
+# The PR targets main unless the issue names another base, with a
+# `base:<branch>` label or a `Base: <branch>` line in its body.
+#
 # Exit codes: 0 = draft PR opened, evidence green; 1 = red (PR opened if there was
 # anything to push); 2 = bad usage/environment; 3 = refused (untrusted author or
 # ambiguous issue), nothing created.
@@ -28,7 +31,7 @@ ISSUE=""
 TRUST=false
 
 usage() {
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -74,6 +77,41 @@ if [[ "$AUTHOR" != "$OWNER" && "$TRUST" != true ]]; then
   echo "issue-to-pr: read it, then pass --trust to run it anyway" >&2
   exit 3
 fi
+
+# --- base branch ------------------------------------------------------------
+# main, unless the issue names another. Every later use of the base — the
+# worktree cut, the phase prompts, the evidence diff, the PR — reads BASE_REF.
+BASES=()
+while IFS= read -r candidate; do
+  [[ -n "$candidate" ]] && ! printf '%s\n' ${BASES[@]+"${BASES[@]}"} | grep -qxF -- "$candidate" \
+    && BASES+=("$candidate")
+done < <(
+  jq -r '(.labels // [])[].name | select(startswith("base:")) | ltrimstr("base:")' "$RUN_DIR/issue.json"
+  jq -r '.body // ""' "$RUN_DIR/issue.json" | tr -d '\r' | sed -n -E 's/^Base: *`?([^` ]+)`? *$/\1/p'
+)
+if [[ ${#BASES[@]} -gt 1 ]]; then
+  # Guessing between two bases is how the PR ends up on the wrong one.
+  echo "issue-to-pr: #$ISSUE names more than one base ($(IFS=', '; echo "${BASES[*]}")); keep one" >&2
+  exit 2
+fi
+[[ ${#BASES[@]} -eq 1 ]] && BASE_REF="${BASES[0]}"
+
+# The issue's author chose this name, and it reaches git and the agent's prompt.
+# git's own check is not enough on its own: it accepts `x;rm`.
+if [[ ! "$BASE_REF" =~ ^[A-Za-z0-9._/-]+$ ]] || ! git check-ref-format --branch "$BASE_REF" >/dev/null 2>&1; then
+  echo "issue-to-pr: '$BASE_REF' is not a branch name the harness will use as a base" >&2
+  exit 2
+fi
+if [[ "$BASE_REF" == "$BRANCH" ]]; then
+  echo "issue-to-pr: the base cannot be the working branch $BRANCH itself" >&2
+  exit 2
+fi
+# No fallback to main: a PR against the wrong base is worse than none.
+if ! git -C "$REPO_ROOT" ls-remote --exit-code --heads origin "$BASE_REF" >/dev/null 2>&1; then
+  echo "issue-to-pr: base '$BASE_REF' does not exist on origin" >&2
+  exit 2
+fi
+echo "issue-to-pr: base $BASE_REF" >&2
 
 # --- labels -----------------------------------------------------------------
 # Created on first use, so a fresh fork needs no setup. Existing labels are left
