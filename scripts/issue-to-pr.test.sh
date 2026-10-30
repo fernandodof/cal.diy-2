@@ -268,6 +268,28 @@ check "a label and a body line that agree run green" "0" \
   "$(run "$SB" FAKE_ISSUE_LABELS="base:release" FAKE_ISSUE_BODY=$'Base: release')"
 rm -rf "$SB"
 
+# Each of these exits 2 before the judge is asked or anything is created.
+refused_base() {
+  local name="$1"; shift
+  SB="$(sandbox)"
+  check "$name" "2" "$(run "$SB" "$@")"
+  check "  the scorer was never called, and nothing was created" "no no no" \
+    "$([[ -f "$SB/log/score.log" ]] && echo yes || echo no) $([[ -d "$SB/worktrees/issue-7" ]] && echo yes || echo no) $(grep -q '^pr create' "$SB/log/gh.log" && echo yes || echo no)"
+  rm -rf "$SB"
+}
+refused_base "a label and a body line that disagree are refused" \
+  FAKE_ISSUE_LABELS="base:release" FAKE_ISSUE_BODY=$'Base: main'
+refused_base "two base labels are refused" FAKE_ISSUE_LABELS="base:release base:main"
+refused_base "a base with shell syntax is refused" FAKE_ISSUE_BODY=$'Base: x;rm'
+refused_base "a base git rejects is refused" FAKE_ISSUE_LABELS="base:a..b"
+refused_base "a base missing from origin is refused" FAKE_ISSUE_LABELS="base:nope"
+refused_base "the working branch as its own base is refused" FAKE_ISSUE_LABELS="base:agent/issue-7"
+
+SB="$(sandbox)"
+run "$SB" FAKE_ISSUE_LABELS="base:nope" >/dev/null
+check "a missing base says so, with no fallback" "1" "$(grep -c "base 'nope' does not exist on origin" "$SB/log/stderr")"
+rm -rf "$SB"
+
 # --- trust gate -------------------------------------------------------------
 SB="$(sandbox)"
 check "an issue by someone else is refused" "3" "$(run "$SB" FAKE_ISSUE_AUTHOR=a-stranger)"

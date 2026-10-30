@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -137,14 +137,6 @@
       `--base release`, `evidence.json` has `base_ref: release`, and the PR is
       `--base release`; with neither, all of it is `main`
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: base-branch override from the issue (#26).
-
 14. **A base that cannot be right is refused before anything starts** — proves a
     conflicting, malformed, missing or self-referential base exits 2 with no
     scoring, comment, worktree or PR
@@ -153,6 +145,12 @@ Increment: base-branch override from the issue (#26).
     - Verified by: `./scripts/issue-to-pr.test.sh` — label `base:release` with body
       `Base: main`; `Base: x;rm`; `base:nope`; `base:agent/issue-7` — each exit 2,
       the scorer never called, no worktree, no PR
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -232,3 +230,6 @@ Increment: base-branch override from the issue (#26).
   three phase prompts, the evidence diff and the PR to that branch; agreeing
   label and body are one base (129 orchestrator checks, exit 0). Until slice 14,
   conflicting candidates take the first. Next: slice 14, refusing bad bases.
+- Slice 14 done: conflicting, malformed (`x;rm`, `a..b`), missing and
+  self-referential bases exit 2 before the scorer runs or anything is created
+  (142 orchestrator checks, exit 0).

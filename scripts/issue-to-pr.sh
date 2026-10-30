@@ -89,7 +89,28 @@ done < <(
   jq -r '(.labels // [])[].name | select(startswith("base:")) | ltrimstr("base:")' "$RUN_DIR/issue.json"
   jq -r '.body // ""' "$RUN_DIR/issue.json" | tr -d '\r' | sed -n -E 's/^Base: *`?([^` ]+)`? *$/\1/p'
 )
-[[ ${#BASES[@]} -gt 0 ]] && BASE_REF="${BASES[0]}"
+if [[ ${#BASES[@]} -gt 1 ]]; then
+  # Guessing between two bases is how the PR ends up on the wrong one.
+  echo "issue-to-pr: #$ISSUE names more than one base ($(IFS=', '; echo "${BASES[*]}")); keep one" >&2
+  exit 2
+fi
+[[ ${#BASES[@]} -eq 1 ]] && BASE_REF="${BASES[0]}"
+
+# The issue's author chose this name, and it reaches git and the agent's prompt.
+# git's own check is not enough on its own: it accepts `x;rm`.
+if [[ ! "$BASE_REF" =~ ^[A-Za-z0-9._/-]+$ ]] || ! git check-ref-format --branch "$BASE_REF" >/dev/null 2>&1; then
+  echo "issue-to-pr: '$BASE_REF' is not a branch name the harness will use as a base" >&2
+  exit 2
+fi
+if [[ "$BASE_REF" == "$BRANCH" ]]; then
+  echo "issue-to-pr: the base cannot be the working branch $BRANCH itself" >&2
+  exit 2
+fi
+# No fallback to main: a PR against the wrong base is worse than none.
+if ! git -C "$REPO_ROOT" ls-remote --exit-code --heads origin "$BASE_REF" >/dev/null 2>&1; then
+  echo "issue-to-pr: base '$BASE_REF' does not exist on origin" >&2
+  exit 2
+fi
 echo "issue-to-pr: base $BASE_REF" >&2
 
 # --- labels -----------------------------------------------------------------
