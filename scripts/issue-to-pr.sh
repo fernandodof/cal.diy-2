@@ -14,6 +14,9 @@
 #   ./scripts/issue-to-pr.sh 42
 #   ./scripts/issue-to-pr.sh --trust 42     # an issue someone else wrote
 #
+# The PR targets main unless the issue names another base, with a
+# `base:<branch>` label or a `Base: <branch>` line in its body.
+#
 # Exit codes: 0 = draft PR opened, evidence green; 1 = red (PR opened if there was
 # anything to push); 2 = bad usage/environment; 3 = refused (untrusted author or
 # ambiguous issue), nothing created.
@@ -28,7 +31,7 @@ ISSUE=""
 TRUST=false
 
 usage() {
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 2
 }
 
@@ -74,6 +77,20 @@ if [[ "$AUTHOR" != "$OWNER" && "$TRUST" != true ]]; then
   echo "issue-to-pr: read it, then pass --trust to run it anyway" >&2
   exit 3
 fi
+
+# --- base branch ------------------------------------------------------------
+# main, unless the issue names another. Every later use of the base — the
+# worktree cut, the phase prompts, the evidence diff, the PR — reads BASE_REF.
+BASES=()
+while IFS= read -r candidate; do
+  [[ -n "$candidate" ]] && ! printf '%s\n' ${BASES[@]+"${BASES[@]}"} | grep -qxF -- "$candidate" \
+    && BASES+=("$candidate")
+done < <(
+  jq -r '(.labels // [])[].name | select(startswith("base:")) | ltrimstr("base:")' "$RUN_DIR/issue.json"
+  jq -r '.body // ""' "$RUN_DIR/issue.json" | tr -d '\r' | sed -n -E 's/^Base: *`?([^` ]+)`? *$/\1/p'
+)
+[[ ${#BASES[@]} -gt 0 ]] && BASE_REF="${BASES[0]}"
+echo "issue-to-pr: base $BASE_REF" >&2
 
 # --- labels -----------------------------------------------------------------
 # Created on first use, so a fresh fork needs no setup. Existing labels are left

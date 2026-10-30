@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
 
@@ -127,14 +127,6 @@
       likewise; score 2 → proceeds; a parse failure → exit 2, no comment; a clear
       issue that carried the label has it removed
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: base-branch override from the issue (#26).
-
 13. **An issue's base reaches every place the base is used** — proves a
     `base:<branch>` label or `Base: <branch>` body line moves the worktree cut, the
     phase prompts, the evidence diff and the PR to that branch
@@ -144,6 +136,15 @@ Increment: base-branch override from the issue (#26).
       body line: the worktree contains that commit, every phase prompt says
       `--base release`, `evidence.json` has `base_ref: release`, and the PR is
       `--base release`; with neither, all of it is `main`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+Increment: base-branch override from the issue (#26).
+
 14. **A base that cannot be right is refused before anything starts** — proves a
     conflicting, malformed, missing or self-referential base exits 2 with no
     scoring, comment, worktree or PR
@@ -227,3 +228,7 @@ Increment: base-branch override from the issue (#26).
   second run would otherwise have recreated them, which real GitHub would not.
 - #26 planned on `feat/base-override`, cut from `origin/main` after #38 merged.
   Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 13 done: a `base:` label or `Base:` body line moves the worktree cut, all
+  three phase prompts, the evidence diff and the PR to that branch; agreeing
+  label and body are one base (129 orchestrator checks, exit 0). Until slice 14,
+  conflicting candidates take the first. Next: slice 14, refusing bad bases.

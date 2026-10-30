@@ -39,6 +39,11 @@ sandbox() {
     git add -A && git commit --quiet -m "init"
     git remote add origin "$sb/origin.git"
     git push --quiet -u origin main
+    # A second base, with a commit main does not have.
+    git checkout --quiet -b release
+    echo "release" > release.txt && git add release.txt && git commit --quiet -m "release only"
+    git push --quiet -u origin release
+    git checkout --quiet main
   )
 
   # gh: canned issue, recorded PR calls.
@@ -48,7 +53,8 @@ echo "$*" >> "$FAKE_LOG/gh.log"
 case "$1 $2" in
   "issue view")
     jq -n --arg author "${FAKE_ISSUE_AUTHOR:-fernandodof}" --arg labels "${FAKE_ISSUE_LABELS:-}" \
-      '{number: 7, title: "test(lib): cover a thing", body: "Add a test.",
+      --arg body "${FAKE_ISSUE_BODY:-Add a test.}" \
+      '{number: 7, title: "test(lib): cover a thing", body: $body,
         url: "https://example.test/issues/7", author: {login: $author},
         labels: ($labels | split(" ") | map(select(. != "") | {name: .}))}' ;;
   "repo view") [[ "$*" == *nameWithOwner* ]] && echo "fernandodof/cal.diy-2" || echo "fernandodof" ;;
@@ -229,6 +235,37 @@ check "the body has the criteria table" "1" \
 check "a second run refuses the existing branch" "2" "$(run "$SB")"
 check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+# --- base branch ------------------------------------------------------------
+# Every use of the base: the worktree cut, each phase prompt, the evidence diff,
+# the PR. Echoes "<has release.txt> <prompts naming it> <evidence base> <PR base>".
+base_uses() {
+  local base="$1"
+  echo "$([[ -f "$SB/worktrees/issue-7/release.txt" ]] && echo yes || echo no)" \
+    "$(grep -c -- "--base $base " "$SB/log/claude.calls")" \
+    "$(jq -r '.base_ref' "$SB/runs/issue-7/evidence.json")" \
+    "$(sed -n 's/^pr create --draft --base \([^ ]*\) .*/\1/p' "$SB/log/gh.log")"
+}
+
+SB="$(sandbox)"
+run "$SB" >/dev/null
+check "with no override everything uses main" "no 3 main main" "$(base_uses main)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a base: label runs green" "0" "$(run "$SB" FAKE_ISSUE_LABELS="base:release")"
+check "  and moves every use to that branch" "yes 3 release release" "$(base_uses release)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a Base: line in the body runs green" "0" "$(run "$SB" FAKE_ISSUE_BODY=$'Add a test.\n\nBase: `release`\n')"
+check "  and moves every use to that branch" "yes 3 release release" "$(base_uses release)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a label and a body line that agree run green" "0" \
+  "$(run "$SB" FAKE_ISSUE_LABELS="base:release" FAKE_ISSUE_BODY=$'Base: release')"
 rm -rf "$SB"
 
 # --- trust gate -------------------------------------------------------------
