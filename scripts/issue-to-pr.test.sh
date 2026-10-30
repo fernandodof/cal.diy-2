@@ -47,12 +47,16 @@ sandbox() {
 echo "$*" >> "$FAKE_LOG/gh.log"
 case "$1 $2" in
   "issue view")
-    jq -n --arg author "${FAKE_ISSUE_AUTHOR:-fernandodof}" \
+    jq -n --arg author "${FAKE_ISSUE_AUTHOR:-fernandodof}" --arg labels "${FAKE_ISSUE_LABELS:-}" \
       '{number: 7, title: "test(lib): cover a thing", body: "Add a test.",
-        url: "https://example.test/issues/7", author: {login: $author}}' ;;
+        url: "https://example.test/issues/7", author: {login: $author},
+        labels: ($labels | split(" ") | map(select(. != "") | {name: .}))}' ;;
+  "repo view") [[ "$*" == *nameWithOwner* ]] && echo "fernandodof/cal.diy-2" || echo "fernandodof" ;;
+  "issue comment"|"issue edit") ;;
   "pr create") echo "https://example.test/pull/99" ;;
-  "label list") printf '%s\n' ${FAKE_EXISTING_LABELS:-} ;;
-  "label create"|"pr edit") ;;
+  "label list") { printf '%s\n' ${FAKE_EXISTING_LABELS:-}; cat "$FAKE_LOG/labels" 2>/dev/null || true; } ;;
+  "label create") echo "$3" >> "$FAKE_LOG/labels" ;;
+  "pr edit") ;;
   *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
 esac
 FAKE
@@ -110,6 +114,17 @@ else
 fi
 FAKE
 
+  # score.sh: FAKE_SCORE grades the issue (default 3); "none" mimics its parse failure.
+  cat > "$sb/bin/score" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_LOG/score.log"
+if [[ "${FAKE_SCORE:-3}" == none ]]; then
+  echo '{"id":"x","score":null,"reasoning":"PARSE_FAILURE","raw":""}'
+else
+  jq -nc --argjson score "${FAKE_SCORE:-3}" '{id: "x", score: $score, reasoning: "The issue never says which unit wins."}'
+fi
+FAKE
+
   # yarn: records each call; FAKE_YARN_FAIL names a subcommand that exits 1.
   cat > "$sb/bin/yarn" <<'FAKE'
 #!/usr/bin/env bash
@@ -147,7 +162,8 @@ run() {
     FAKE_LOG="$sb/log" \
     HEADLESS_TASK_OUT_DIR="$sb/runs" \
     ISSUE_TO_PR_WORKTREE_DIR="$sb/worktrees" \
-    "$sb/repo/scripts/issue-to-pr.sh" 7 > "$sb/log/stdout" 2> "$sb/log/stderr"
+    ISSUE_TO_PR_SCORER="$sb/bin/score" \
+    "$sb/repo/scripts/issue-to-pr.sh" ${RUN_ARGS:-} 7 > "$sb/log/stdout" 2> "$sb/log/stderr"
   echo $?
   set -e
 }
@@ -213,6 +229,62 @@ check "the body has the criteria table" "1" \
 check "a second run refuses the existing branch" "2" "$(run "$SB")"
 check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+# --- trust gate -------------------------------------------------------------
+SB="$(sandbox)"
+check "an issue by someone else is refused" "3" "$(run "$SB" FAKE_ISSUE_AUTHOR=a-stranger)"
+check "the refusal names the author" "1" "$(grep -c "written by 'a-stranger', not the repo owner 'fernandodof'" "$SB/log/stderr")"
+check "only reads reached GitHub" "issue view,repo view" \
+  "$(cut -d' ' -f1-2 "$SB/log/gh.log" | paste -sd, -)"
+check "no branch was created" "no" \
+  "$(git -C "$SB/repo" rev-parse --verify --quiet refs/heads/agent/issue-7 >/dev/null && echo yes || echo no)"
+check "no worktree was created" "no" "$([[ -d "$SB/worktrees/issue-7" ]] && echo yes || echo no)"
+check "no agent ran" "no" "$([[ -f "$SB/log/claude.calls" ]] && echo yes || echo no)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "--trust runs someone else's issue" "0" "$(RUN_ARGS=--trust run "$SB" FAKE_ISSUE_AUTHOR=a-stranger)"
+check "and opens its draft PR" "1" "$(grep -c '^pr create --draft ' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+# --- ambiguity gate ---------------------------------------------------------
+SB="$(sandbox)"
+run "$SB" >/dev/null
+check "a clear issue is scored, against this repo" "--issue fernandodof/cal.diy-2#7" "$(cat "$SB/log/score.log")"
+check "a clear issue posts no comment" "0" "$(grep -c '^issue comment' "$SB/log/gh.log" || true)"
+rm -rf "$SB"
+
+for score in 1 0; do
+  SB="$(sandbox)"
+  check "a score of $score is refused" "3" "$(run "$SB" FAKE_SCORE=$score)"
+  check "  it comments once" "1" "$(grep -c '^issue comment 7 ' "$SB/log/gh.log")"
+  check "  the comment carries the judge's reasoning" "1" \
+    "$(grep -c '> The issue never says which unit wins.' "$SB/log/gh.log")"
+  check "  the comment carries the score" "1" "$(grep -c "scored \*\*$score / 3\*\*" "$SB/log/gh.log")"
+  check "  the issue is labelled needs-clarification" "1" \
+    "$(grep -c '^issue edit 7 --add-label agent:needs-clarification$' "$SB/log/gh.log")"
+  check "  the label exists before it is used" "yes" \
+    "$([[ $(grep -n '^label create agent:needs-clarification' "$SB/log/gh.log" | cut -d: -f1) -lt $(grep -n '^issue edit' "$SB/log/gh.log" | cut -d: -f1) ]] && echo yes || echo no)"
+  check "  no worktree, branch or agent" "no no no" \
+    "$([[ -d "$SB/worktrees/issue-7" ]] && echo yes || echo no) $(git -C "$SB/repo" rev-parse --verify --quiet refs/heads/agent/issue-7 >/dev/null && echo yes || echo no) $([[ -f "$SB/log/claude.calls" ]] && echo yes || echo no)"
+  rm -rf "$SB"
+done
+
+SB="$(sandbox)"
+check "a score of 2 proceeds" "0" "$(run "$SB" FAKE_SCORE=2)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a judge that gave no score is an environment error" "2" "$(run "$SB" FAKE_SCORE=none)"
+check "  it posts no comment and adds no label" "0" "$(grep -cE '^issue (comment|edit)' "$SB/log/gh.log" || true)"
+check "  and starts nothing" "no" "$([[ -d "$SB/worktrees/issue-7" ]] && echo yes || echo no)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a clarified issue proceeds" "0" "$(run "$SB" FAKE_ISSUE_LABELS="agent:needs-clarification bug")"
+check "  and sheds its needs-clarification label" "1" \
+  "$(grep -c '^issue edit 7 --remove-label agent:needs-clarification$' "$SB/log/gh.log")"
 rm -rf "$SB"
 
 # --- red path ---------------------------------------------------------------

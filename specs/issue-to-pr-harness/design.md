@@ -499,3 +499,91 @@ Five non-test files.
 ## Out of Scope
 
 - Judging whether a test really proves its criterion — the review phase (#30).
+
+---
+
+# Increment: trust and ambiguity gates (#25)
+
+Tracks [#25](https://github.com/fernandodof/cal.diy-2/issues/25). Builds on the
+tracer (#34); independent of #27–#29.
+
+## Overview
+
+Two gates run right after the issue is fetched, before any branch, worktree,
+install or agent session exists. The **trust gate** refuses an issue whose author
+is not the repo owner unless `--trust` is passed, with no side effects. The
+**ambiguity gate** scores the issue with the existing scorer; at **1 or lower**
+it comments the judge's reasoning, labels the issue `agent:needs-clarification`
+and stops. Exit codes gain a distinct value for "refused".
+
+## Problem Statement
+
+The issue body becomes the agent's prompt, so an issue written by anyone who can
+open one is an instruction to an agent with write access to a branch. And an
+issue too vague to implement costs a full three-phase run before anyone finds out.
+
+## Technical Design
+
+### Threshold — corrected from the issue
+
+`evals/issue-ambiguity/RUBRIC.md` scores **3 = Unambiguous** down to
+**0 = Unactionable**. #25 (and the PRD, #23) said "a score of 2 or higher" stops
+the run, which would refuse the clearest issues. Confirmed with the user at this
+phase: **stop at a score ≤ 1** (unactionable, highly ambiguous); proceed on 2
+(mostly clear) and 3. #25 and #23 were edited to match, with a dated note.
+
+### Order of the gates
+
+1. **Trust** — `gh repo view --json owner` gives the owner; `issue.json`'s
+   `author.login` must equal it, or `--trust` was passed. Otherwise print the
+   reason and exit **3**. Nothing is written to GitHub, no label is created —
+   the check costs nothing, so it runs first.
+2. **Labels** — the existing idempotent label setup (`scripts/issue-to-pr.sh`)
+   moves up to here, so `agent:needs-clarification` exists before it is used.
+3. **Ambiguity** — `"$SCORER" --issue <owner/repo>#<N>` (default
+   `evals/issue-ambiguity/score.sh`, overridable as `ISSUE_TO_PR_SCORER` — the
+   scorer itself calls `claude -p`, `score.sh:52`, so tests substitute it rather
+   than the fake `claude`). Output `{id, score, reasoning}` goes to
+   `<run>/ambiguity.json`.
+   - `score ≤ 1` → one issue comment (score, label, reasoning, how to proceed),
+     `agent:needs-clarification` added, exit **3**.
+   - `score == null` (the scorer's `PARSE_FAILURE`) or the scorer failing → exit
+     **2**, no comment: a judge that did not answer is an environment problem,
+     not a verdict on the issue.
+   - `score ≥ 2` → if the issue carries `agent:needs-clarification` from an
+     earlier run, remove it; continue.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | draft PR opened, evidence green |
+| 1 | red — draft PR opened, or nothing to push |
+| 2 | bad usage / environment (unchanged) |
+| **3** | **refused** — untrusted author or ambiguous issue; no branch, no PR |
+
+Documented in the script's usage block.
+
+### Files
+
+| File | Change |
+|---|---|
+| `scripts/issue-to-pr.sh` | `--trust`, both gates, labels moved up, exit 3, usage |
+| `scripts/issue-to-pr.test.sh` | fake scorer; `gh repo view`, `issue comment`, `issue edit` in the fake `gh` |
+
+One non-test file.
+
+## Edge Cases
+
+- **The comment is posted once per refused run.** A re-run on an unchanged issue
+  posts another — it is a new judgement on the current text, and #32 (re-runs)
+  owns deduplication if that proves noisy.
+- **`issue.json` gains `labels`** so the clear-path removal does not need a
+  second fetch.
+- **An issue from another repo** is out of scope for the harness (PRD), so the
+  owner is this repo's.
+
+## Out of Scope
+
+- Changing the rubric or the scorer.
+- Trust beyond the owner (a list of collaborators) — `--trust` covers it.

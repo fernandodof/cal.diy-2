@@ -107,6 +107,26 @@
       orchestrator with a fake report marking the tagged test `skipped` while the
       run exits 0 → red
 
+11. **An untrusted author is refused before anything happens** — proves the
+    harness exits 3 on an issue not written by the repo owner, touching nothing,
+    and proceeds with `--trust`
+    - `scripts/issue-to-pr.sh` (`--trust`, owner from `gh repo view`, exit 3,
+      usage block lists all four exit codes)
+    - Verified by: `./scripts/issue-to-pr.test.sh` — another author → exit 3, no
+      `gh` call besides the reads, no worktree, no branch, no label created;
+      `--trust` → the normal green run
+
+12. **An ambiguous issue is sent back with the judge's reasoning** — proves a
+    score ≤ 1 comments, labels and stops before any branch, and a clear issue
+    sheds a stale label and proceeds
+    - `scripts/issue-to-pr.sh` (`ISSUE_TO_PR_SCORER`, labels moved before the
+      gate, comment + label + exit 3, null score → exit 2, clear path removes
+      `agent:needs-clarification`)
+    - Verified by: `./scripts/issue-to-pr.test.sh` with a fake scorer — score 1 →
+      one comment carrying the reasoning, the label, exit 3, no worktree; score 0
+      likewise; score 2 → proceeds; a parse failure → exit 2, no comment; a clear
+      issue that carried the label has it removed
+
 ## In Progress
 
 ## Blocked
@@ -173,3 +193,15 @@
   declared, not found, or reported as failed/skipped/todo (36 verdict, 93
   orchestrator checks; both exit 0). A skipped tagged test is red although its
   run exits 0, and an undeclared tagged file is never run.
+- #25 planned on `feat/trust-ambiguity-gates`, cut from `origin/main` after #37
+  merged. Threshold corrected to "stop at ≤ 1" with the user in Phase 1; #25 and
+  #23 edited to match. Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 11 done: an issue not written by the repo owner exits 3 after only the
+  two reads (`issue view`, `repo view`); `--trust` runs it (101 orchestrator
+  checks, exit 0). Next: slice 12, the ambiguity gate.
+- Slice 12 done: a score ≤ 1 comments the judge's reasoning, labels
+  `agent:needs-clarification` and exits 3 before any branch; no score is exit 2
+  with no comment; a clear issue sheds a stale label (123 orchestrator checks,
+  exit 0). Label setup moved up between the gates. The fake `gh` now remembers
+  labels it created — with labels set up before the branch check, the test's
+  second run would otherwise have recreated them, which real GitHub would not.
