@@ -53,6 +53,19 @@ for cmd in gh jq git; do
   }
 done
 
+# Per-phase turn caps and one cost cap for the whole run. Every session is
+# started with what is left of the cost cap, so the cap holds inside a session
+# and not only between them.
+MAX_COST_USD="${HEADLESS_TASK_MAX_COST_USD:-5}"
+MAX_TURNS_RESEARCH="${HEADLESS_TASK_MAX_TURNS_RESEARCH:-30}"
+MAX_TURNS_PLAN="${HEADLESS_TASK_MAX_TURNS_PLAN:-15}"
+MAX_TURNS_IMPLEMENT="${HEADLESS_TASK_MAX_TURNS_IMPLEMENT:-80}"
+for cap in "$MAX_TURNS_RESEARCH" "$MAX_TURNS_PLAN" "$MAX_TURNS_IMPLEMENT"; do
+  [[ "$cap" =~ ^[1-9][0-9]*$ ]] || { echo "issue-to-pr: turn cap '$cap' is not a positive whole number" >&2; exit 2; }
+done
+[[ "$MAX_COST_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] && jq -en --argjson c "$MAX_COST_USD" '$c > 0' >/dev/null \
+  || { echo "issue-to-pr: cost cap '$MAX_COST_USD' is not a positive number of dollars" >&2; exit 2; }
+
 RUN_ID="issue-$ISSUE"
 RUN_DIR="$OUT_DIR/$RUN_ID"
 BRANCH="agent/issue-$ISSUE"
@@ -216,10 +229,21 @@ for phase in 1-research 2-plan 3-implement; do
   if [[ $n -eq 1 ]]; then
     TASK+="$(jq -r '"\n\n# Issue #\(.number): \(.title)\n\n" + (.body // "(no description)")' "$RUN_DIR/issue.json")"
   fi
-  echo "issue-to-pr: phase $phase" >&2
+  case "$phase" in
+    1-research) TURNS="$MAX_TURNS_RESEARCH" ;;
+    2-plan) TURNS="$MAX_TURNS_PLAN" ;;
+    3-implement) TURNS="$MAX_TURNS_IMPLEMENT" ;;
+  esac
+  REMAINING="$(jq -s --argjson cap "$MAX_COST_USD" '$cap - (map(.cost_usd // 0) | add // 0)' "$RUN_DIR/phases.jsonl")"
+  if jq -en --argjson r "$REMAINING" '$r <= 0' >/dev/null; then
+    echo "issue-to-pr: stopping before phase $phase — the \$$MAX_COST_USD cost cap is spent" >&2
+    break
+  fi
+  echo "issue-to-pr: phase $phase (up to $TURNS turns, \$$REMAINING left)" >&2
   printf '%s' "$TASK" | "$REPO_ROOT/scripts/headless-task.sh" \
     --run-id "$RUN_ID/$phase" --workdir "$WORKTREE" \
     --allowed-tools "$ALLOWED_TOOLS" --disallowed-tools "$DISALLOWED_TOOLS" \
+    --max-turns "$TURNS" --max-budget-usd "$REMAINING" \
     - >/dev/null 2>&1 || true
 
   [[ $n -eq 1 ]] && SPEC="$(resolve_spec || true)"
@@ -229,9 +253,9 @@ for phase in 1-research 2-plan 3-implement; do
       && OUTCOME="${BASH_REMATCH[1]}"
   fi
   jq -c --arg phase "$phase" --arg outcome "$OUTCOME" \
-    '{phase: $phase, status, turns, cost_usd, outcome: (if $outcome == "" then null else $outcome end)}' \
+    '{phase: $phase, status, subtype, turns, cost_usd, outcome: (if $outcome == "" then null else $outcome end)}' \
     "$RUN_DIR/$phase/summary.json" >> "$RUN_DIR/phases.jsonl" 2>/dev/null \
-    || jq -nc --arg phase "$phase" '{phase: $phase, status: null, turns: null, cost_usd: null, outcome: null}' >> "$RUN_DIR/phases.jsonl"
+    || jq -nc --arg phase "$phase" '{phase: $phase, status: null, subtype: null, turns: null, cost_usd: null, outcome: null}' >> "$RUN_DIR/phases.jsonl"
 
   # The next phase reads this one's handoff file, so it cannot start on a phase
   # that failed, blocked, or left no gate saying it finished.
@@ -239,13 +263,23 @@ for phase in 1-research 2-plan 3-implement; do
     echo "issue-to-pr: stopping after phase $phase (session $(jq -r '.status // "missing"' "$RUN_DIR/$phase/summary.json" 2>/dev/null || echo missing), gate ${OUTCOME:-missing})" >&2
     break
   fi
+  # A plan marked blocked is a stop on its own, whatever the gate file says.
+  if [[ -n "$SPEC" ]] && grep -qE '^## Status: blocked[[:space:]]*$' "$WORKTREE/$SPEC/implementation.md" 2>/dev/null; then
+    echo "issue-to-pr: stopping after phase $phase — $SPEC/implementation.md says blocked" >&2
+    break
+  fi
 done
 jq -s . "$RUN_DIR/phases.jsonl" > "$RUN_DIR/phases.json"
+jq -n --argjson cost "$MAX_COST_USD" \
+  --argjson research "$MAX_TURNS_RESEARCH" --argjson plan "$MAX_TURNS_PLAN" --argjson implement "$MAX_TURNS_IMPLEMENT" \
+  '{cost_cap_usd: $cost, turn_caps: {"1-research": $research, "2-plan": $plan, "3-implement": $implement}}' \
+  > "$RUN_DIR/budget.json"
 
 # --- evidence and verdict ---------------------------------------------------
 "$REPO_ROOT/scripts/implement-evidence.sh" \
   --worktree "$WORKTREE" --base "$BASE_REF" \
-  --issue-json "$RUN_DIR/issue.json" --phases "$RUN_DIR/phases.json" ${SPEC:+--spec "$SPEC"} \
+  --issue-json "$RUN_DIR/issue.json" --phases "$RUN_DIR/phases.json" --budget "$RUN_DIR/budget.json" \
+  ${SPEC:+--spec "$SPEC"} \
   > "$RUN_DIR/evidence.json"
 
 set +e

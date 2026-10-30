@@ -19,6 +19,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${HEADLESS_TASK_OUT_DIR:-$REPO_ROOT/.claude/headless-runs}"
 MAX_TURNS="${HEADLESS_TASK_MAX_TURNS:-40}"
 PERMISSION_MODE="${HEADLESS_TASK_PERMISSION_MODE:-acceptEdits}"
+# Dollars the session may spend; unset means the CLI's own default (none).
+MAX_BUDGET_USD="${HEADLESS_TASK_MAX_BUDGET_USD:-}"
 WORKDIR="${HEADLESS_TASK_WORKDIR:-}"
 # Comma-separated permission rules, passed through to the CLI as given.
 ALLOWED_TOOLS="${HEADLESS_TASK_ALLOWED_TOOLS:-}"
@@ -54,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --allowed-tools) ALLOWED_TOOLS="${2:-}"; [[ -n "$ALLOWED_TOOLS" ]] || usage; shift 2 ;;
     --disallowed-tools) DISALLOWED_TOOLS="${2:-}"; [[ -n "$DISALLOWED_TOOLS" ]] || usage; shift 2 ;;
     --max-turns) MAX_TURNS="${2:-}"; shift 2 ;;
+    --max-budget-usd) MAX_BUDGET_USD="${2:-}"; [[ -n "$MAX_BUDGET_USD" ]] || usage; shift 2 ;;
     --permission-mode) PERMISSION_MODE="${2:-}"; shift 2 ;;
     -h|--help) usage ;;
     --) shift; break ;;
@@ -107,6 +110,7 @@ echo "headless-task: run $RUN_ID -> $RUN_DIR" >&2
 TOOL_ARGS=()
 [[ -n "$ALLOWED_TOOLS" ]] && TOOL_ARGS+=(--allowedTools "$ALLOWED_TOOLS")
 [[ -n "$DISALLOWED_TOOLS" ]] && TOOL_ARGS+=(--disallowedTools "$DISALLOWED_TOOLS")
+[[ -n "$MAX_BUDGET_USD" ]] && TOOL_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
 
 set +e
 printf '%s' "$TASK" | (cd "$WORKDIR" && claude \

@@ -146,6 +146,28 @@
       `Base: main`; `Base: x;rm`; `base:nope`; `base:agent/issue-7` — each exit 2,
       the scorer never called, no worktree, no PR
 
+15. **Every phase runs inside its caps** — proves each session is started with
+    its own turn cap and with only what is left of the cost cap, and that the
+    evidence shows both
+    - `scripts/headless-task.sh` (`--max-budget-usd`), `scripts/issue-to-pr.sh`
+      (per-phase `--max-turns`, remaining budget, cap validation, `budget.json`),
+      `scripts/implement-evidence.sh` (`budget`, `phases[].subtype`),
+      `scripts/implement-verdict.sh` (Budget row)
+    - Verified by: `./scripts/issue-to-pr.test.sh` — the fake `claude` logs each
+      call's flags: turns 30/15/80, budgets 5, then 5 minus each phase's cost; env
+      overrides change both; a non-numeric cap exits 2 before anything starts
+
+16. **Hitting a limit stops the run and says which** — proves a spent budget, a
+    turn cap or a blocked plan ends the sequence on the honest-failure path
+    - `scripts/issue-to-pr.sh` (stop on spent budget, on `## Status: blocked`),
+      `scripts/implement-evidence.sh` (`plan_status`, `exceeded`),
+      `scripts/implement-verdict.sh` (three rules),
+      `docs/harness/implement-evidence-schema.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh` — a phase costing more than the
+      cap → no next phase, red draft PR naming the cost; `error_max_turns` in
+      Plan → no Implement, the reason names the cap; a plan at `## Status:
+      blocked` with `Outcome: continue` → stops; verdict fixtures for each rule
+
 ## In Progress
 
 ## Blocked
@@ -233,3 +255,17 @@
 - Slice 14 done: conflicting, malformed (`x;rm`, `a..b`), missing and
   self-referential bases exit 2 before the scorer runs or anything is created
   (142 orchestrator checks, exit 0).
+- #31 planned on `feat/budgets`, cut from `origin/main` after #39 merged.
+  Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 15 done: sessions start with turn caps 30/15/80 and `--max-budget-usd`
+  set to what is left of $5; caps are env-overridable and validated before the
+  issue is fetched; the evidence carries `budget` and each phase's `subtype` (153
+  orchestrator checks, exit 0). Next: slice 16, stopping on a hit limit.
+- Slice 16 done: a spent cost cap stops before the next phase, a turn cap and a
+  plan at `## Status: blocked` stop after theirs, each on the red draft-PR path
+  with its own reason (41 verdict, 163 orchestrator checks; both exit 0).
+- A real probe of `--max-budget-usd` (two Haiku calls) showed decimals work, an
+  exhausted budget reports `error_max_budget_usd`, and the CLI checks between
+  turns, so a run can end slightly over its cap. The collector now also counts
+  that subtype as the cost cap; documented in the schema (165 orchestrator
+  checks, exit 0).

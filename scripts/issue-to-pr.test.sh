@@ -74,6 +74,7 @@ FAKE
   cat > "$sb/bin/claude" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$FAKE_LOG/claude.args"
+echo "$*" >> "$FAKE_LOG/claude.argv"
 cat > "$FAKE_LOG/claude.stdin"
 pwd > "$FAKE_LOG/claude.cwd"
 # The prompt may not end in a newline; give each call its own line regardless.
@@ -95,8 +96,8 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
       gate 1-research ;;
     2)
       # FAKE_VERIFY replaces the declared commands; set it empty to declare none.
-      printf '# plan\n\n## Verification\n\n```sh\n%s\n```\n' \
-        "${FAKE_VERIFY-yarn test thing.test.ts}" > specs/thing/implementation.md
+      printf '# plan\n\n## Status: %s\n\n## Verification\n\n```sh\n%s\n```\n' \
+        "${FAKE_PLAN_STATUS:-planned}" "${FAKE_VERIFY-yarn test thing.test.ts}" > specs/thing/implementation.md
       gate 2-plan ;;
     3)
       if [[ "$mode" == docs ]]; then
@@ -114,9 +115,11 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
   git -c user.email=a@b -c user.name=agent commit --quiet -m "phase $phase"
 fi
 if [[ -n "$phase" && ( "${FAKE_FAIL_PHASE:-}" == "$phase" || ( "$mode" == fail && "$phase" == 3 ) ) ]]; then
-  echo '{"is_error": true, "subtype": "error_max_turns", "num_turns": 40, "total_cost_usd": 1}'
+  jq -nc --arg subtype "${FAKE_FAIL_SUBTYPE:-error_max_turns}" \
+    '{is_error: true, subtype: $subtype, num_turns: 40, total_cost_usd: 1}'
 else
-  echo '{"is_error": false, "subtype": "success", "result": "Did the thing.", "num_turns": 3, "total_cost_usd": 0.1}'
+  jq -nc --argjson cost "${FAKE_COST:-0.1}" \
+    '{is_error: false, subtype: "success", result: "Did the thing.", num_turns: 3, total_cost_usd: $cost}'
 fi
 FAKE
 
@@ -236,6 +239,62 @@ check "a second run refuses the existing branch" "2" "$(run "$SB")"
 check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
 rm -rf "$SB"
+
+# --- budgets ----------------------------------------------------------------
+# "<turn cap> <budget>" for each phase session, in order.
+caps_per_call() {
+  sed -n -E 's/.*--max-turns ([0-9]+) .*--max-budget-usd ([0-9.]+) .*/\1:\2/p' "$SB/log/claude.argv" | xargs
+}
+SB="$(sandbox)"
+run "$SB" >/dev/null
+check "each phase gets its own turn cap and only what is left of \$5" "30:5 15:4.9 80:4.8" "$(caps_per_call)"
+check "the evidence records the caps and what was spent" "5 0.3 30,15,80" \
+  "$(jq -r '.budget | "\(.cost_cap_usd) \(.spent_usd * 10 | round / 10) \(.turn_caps | [.[]] | join(","))"' "$SB/runs/issue-7/evidence.json")"
+check "and each phase's subtype" "success,success,success" \
+  "$(jq -r '[.phases[].subtype] | join(",")' "$SB/runs/issue-7/evidence.json")"
+check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.3 of \$5; turn caps 1-research 30, 2-plan 15, 3-implement 80 |$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" HEADLESS_TASK_MAX_COST_USD=2 HEADLESS_TASK_MAX_TURNS_RESEARCH=10 \
+  HEADLESS_TASK_MAX_TURNS_PLAN=5 HEADLESS_TASK_MAX_TURNS_IMPLEMENT=20 >/dev/null
+check "every cap can be overridden" "10:2 5:1.9 20:1.8" "$(caps_per_call)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a phase that spends the whole cap exits 1" "1" "$(run "$SB" FAKE_COST=6)"
+check "  no phase starts once the cap is spent" "1" "$(wc -l < "$SB/log/claude.argv" | xargs)"
+check "  the partial work still reaches a red draft PR" "1" \
+  "$(grep -c '^pr create --draft .*--label agent:needs-help' "$SB/log/gh.log")"
+check "  the body names the cost" "1" "$(grep -c '^- budget: spent \$6 of the \$5 cap$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a session the CLI stopped on its budget exits 1" "1" \
+  "$(run "$SB" FAKE_FAIL_PHASE=2 FAKE_FAIL_SUBTYPE=error_max_budget_usd)"
+check "  counts as the cost cap, though the sum is under it" "cost" \
+  "$(jq -r '.budget.exceeded' "$SB/runs/issue-7/evidence.json")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a Plan that hits its turn cap exits 1" "1" "$(run "$SB" FAKE_FAIL_PHASE=2)"
+check "  Implement never starts" "2" "$(wc -l < "$SB/log/claude.argv" | xargs)"
+check "  the body names the cap" "1" "$(grep -c '^- budget: 2-plan hit its 15-turn cap$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a plan marked blocked exits 1" "1" "$(run "$SB" FAKE_PLAN_STATUS=blocked)"
+check "  stops though its gate said continue" "2" "$(wc -l < "$SB/log/claude.argv" | xargs)"
+check "  the body says the plan is blocked" "1" \
+  "$(grep -cF -- '- plan: implementation.md says blocked — see its `## Blocked`' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+for bad in HEADLESS_TASK_MAX_COST_USD=five HEADLESS_TASK_MAX_COST_USD=0 HEADLESS_TASK_MAX_TURNS_PLAN=-1; do
+  SB="$(sandbox)"
+  check "a cap of ${bad#HEADLESS_TASK_} is refused" "2" "$(run "$SB" "$bad")"
+  check "  before anything is fetched" "no" "$([[ -f "$SB/log/gh.log" ]] && echo yes || echo no)"
+  rm -rf "$SB"
+done
 
 # --- base branch ------------------------------------------------------------
 # Every use of the base: the worktree cut, each phase prompt, the evidence diff,

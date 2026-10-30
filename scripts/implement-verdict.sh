@@ -67,6 +67,12 @@ POLICY='
         elif .outcome == "blocked" then "phase \(.phase): blocked — see `\($spec)/gates/\(.phase).md`"
         elif .outcome == null then "phase \(.phase): left no gate file saying it finished"
         else empty end ),
+    (if .budget.exceeded == "cost" then "budget: spent $\(.budget.spent_usd * 100 | round / 100) of the $\(.budget.cost_cap_usd) cap"
+     elif (.budget.exceeded // "" | startswith("turns:")) then
+       (.budget.exceeded | ltrimstr("turns:")) as $p
+       | "budget: \($p) hit its \(.budget.turn_caps[$p])-turn cap"
+     else empty end),
+    (if .plan_status == "blocked" then "plan: implementation.md says blocked — see its `## Blocked`" else empty end),
     (if .phases != null and (.phases | length) < 3
      then "phases: stopped after \(.phases[-1].phase); \(3 - (.phases | length)) phase(s) never ran"
      else empty end),
@@ -109,6 +115,10 @@ RENDER='
       "| Base | \($ev.base_ref | code) (merge base \(($ev.merge_base // "unresolved")[0:10] | code)) |",
       "| Diff | \(if $ev.diff then "\($ev.diff.files_changed) files, +\($ev.diff.insertions) −\($ev.diff.deletions)" else "unavailable" end) |",
       "| Spec | \(($ev.spec // "not found") | code) |",
+      (if $ev.budget then
+        "| Budget | $\($ev.budget.spent_usd * 100 | round / 100) of $\($ev.budget.cost_cap_usd); turn caps "
+        + ($ev.budget.turn_caps | to_entries | map("\(.key) \(.value)") | join(", ")) + " |"
+      else empty end),
       "",
       (if $ev.phases then
         "### Phases\n\n| Phase | Session | Gate | Turns | Cost |\n|---|---|---|---|---|\n"
