@@ -7,7 +7,7 @@
 #
 # Usage:
 #   ./scripts/implement-evidence.sh --worktree <dir> --base main \
-#     --issue-json issue.json --phases phases.json [--spec specs/<slug>]
+#     --issue-json issue.json --phases phases.json --budget budget.json [--spec specs/<slug>]
 #
 # Exit codes: 0 = evidence collected, 2 = bad usage/environment.
 #
@@ -19,6 +19,7 @@ WORKTREE=""
 BASE_REF=""
 ISSUE_JSON=""
 PHASES_FILE=""
+BUDGET_FILE=""
 SPEC=""
 LOG_TAIL_LINES=40
 
@@ -33,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     --base) BASE_REF="${2:-}"; shift 2 ;;
     --issue-json) ISSUE_JSON="${2:-}"; shift 2 ;;
     --phases) PHASES_FILE="${2:-}"; shift 2 ;;
+    --budget) BUDGET_FILE="${2:-}"; shift 2 ;;
     --spec) SPEC="${2:-}"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "implement-evidence: unknown argument $1" >&2; usage ;;
@@ -182,6 +184,12 @@ if [[ -n "$SPEC" && -f "$PLAN_FILE" ]]; then
   fi
 fi
 
+# The caps the harness ran under and what the phases spent against them.
+BUDGET="null"
+if [[ -f "$BUDGET_FILE" ]] && jq -e 'type == "object"' "$BUDGET_FILE" >/dev/null 2>&1; then
+  BUDGET="$(jq -c --argjson phases "$PHASES" '. + {spent_usd: (($phases // []) | map(.cost_usd // 0) | add // 0)}' "$BUDGET_FILE")"
+fi
+
 # Declared runs also write vitest's JSON report, one per command, which is what
 # acceptance criteria are judged against: an exit code cannot see a skipped test.
 REPORT_DIR="$(mktemp -d)"
@@ -282,6 +290,7 @@ jq -n \
   --argjson declared_commands "$DECLARED_COMMANDS" \
   --argjson rejected_commands "$REJECTED_COMMANDS" \
   --argjson criteria "$CRITERIA" \
+  --argjson budget "$BUDGET" \
   '{
     schema: "implement-evidence/1",
     collected_at: $collected_at,
@@ -294,6 +303,7 @@ jq -n \
     spec: (if $spec == "" then null else $spec end),
     agent: $agent,
     phases: $phases,
+    budget: $budget,
     diff: $diff,
     checks: $checks,
     declared_commands: $declared_commands,

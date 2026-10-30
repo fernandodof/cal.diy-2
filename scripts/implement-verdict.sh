@@ -109,6 +109,10 @@ RENDER='
       "| Base | \($ev.base_ref | code) (merge base \(($ev.merge_base // "unresolved")[0:10] | code)) |",
       "| Diff | \(if $ev.diff then "\($ev.diff.files_changed) files, +\($ev.diff.insertions) −\($ev.diff.deletions)" else "unavailable" end) |",
       "| Spec | \(($ev.spec // "not found") | code) |",
+      (if $ev.budget then
+        "| Budget | $\($ev.budget.spent_usd * 100 | round / 100) of $\($ev.budget.cost_cap_usd); turn caps "
+        + ($ev.budget.turn_caps | to_entries | map("\(.key) \(.value)") | join(", ")) + " |"
+      else empty end),
       "",
       (if $ev.phases then
         "### Phases\n\n| Phase | Session | Gate | Turns | Cost |\n|---|---|---|---|---|\n"

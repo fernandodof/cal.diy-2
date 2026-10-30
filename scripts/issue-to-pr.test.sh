@@ -74,6 +74,7 @@ FAKE
   cat > "$sb/bin/claude" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$FAKE_LOG/claude.args"
+echo "$*" >> "$FAKE_LOG/claude.argv"
 cat > "$FAKE_LOG/claude.stdin"
 pwd > "$FAKE_LOG/claude.cwd"
 # The prompt may not end in a newline; give each call its own line regardless.
@@ -116,7 +117,8 @@ fi
 if [[ -n "$phase" && ( "${FAKE_FAIL_PHASE:-}" == "$phase" || ( "$mode" == fail && "$phase" == 3 ) ) ]]; then
   echo '{"is_error": true, "subtype": "error_max_turns", "num_turns": 40, "total_cost_usd": 1}'
 else
-  echo '{"is_error": false, "subtype": "success", "result": "Did the thing.", "num_turns": 3, "total_cost_usd": 0.1}'
+  jq -nc --argjson cost "${FAKE_COST:-0.1}" \
+    '{is_error: false, subtype: "success", result: "Did the thing.", num_turns: 3, total_cost_usd: $cost}'
 fi
 FAKE
 
@@ -236,6 +238,34 @@ check "a second run refuses the existing branch" "2" "$(run "$SB")"
 check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
 rm -rf "$SB"
+
+# --- budgets ----------------------------------------------------------------
+# "<turn cap> <budget>" for each phase session, in order.
+caps_per_call() {
+  sed -n -E 's/.*--max-turns ([0-9]+) .*--max-budget-usd ([0-9.]+) .*/\1:\2/p' "$SB/log/claude.argv" | xargs
+}
+SB="$(sandbox)"
+run "$SB" >/dev/null
+check "each phase gets its own turn cap and only what is left of \$5" "30:5 15:4.9 80:4.8" "$(caps_per_call)"
+check "the evidence records the caps and what was spent" "5 0.3 30,15,80" \
+  "$(jq -r '.budget | "\(.cost_cap_usd) \(.spent_usd * 10 | round / 10) \(.turn_caps | [.[]] | join(","))"' "$SB/runs/issue-7/evidence.json")"
+check "and each phase's subtype" "success,success,success" \
+  "$(jq -r '[.phases[].subtype] | join(",")' "$SB/runs/issue-7/evidence.json")"
+check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.3 of \$5; turn caps 1-research 30, 2-plan 15, 3-implement 80 |$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" HEADLESS_TASK_MAX_COST_USD=2 HEADLESS_TASK_MAX_TURNS_RESEARCH=10 \
+  HEADLESS_TASK_MAX_TURNS_PLAN=5 HEADLESS_TASK_MAX_TURNS_IMPLEMENT=20 >/dev/null
+check "every cap can be overridden" "10:2 5:1.9 20:1.8" "$(caps_per_call)"
+rm -rf "$SB"
+
+for bad in HEADLESS_TASK_MAX_COST_USD=five HEADLESS_TASK_MAX_COST_USD=0 HEADLESS_TASK_MAX_TURNS_PLAN=-1; do
+  SB="$(sandbox)"
+  check "a cap of ${bad#HEADLESS_TASK_} is refused" "2" "$(run "$SB" "$bad")"
+  check "  before anything is fetched" "no" "$([[ -f "$SB/log/gh.log" ]] && echo yes || echo no)"
+  rm -rf "$SB"
+done
 
 # --- base branch ------------------------------------------------------------
 # Every use of the base: the worktree cut, each phase prompt, the evidence diff,

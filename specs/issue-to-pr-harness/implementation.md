@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
 
@@ -146,14 +146,6 @@
       `Base: main`; `Base: x;rm`; `base:nope`; `base:agent/issue-7` — each exit 2,
       the scorer never called, no worktree, no PR
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: budgets and blocked-status routing (#31).
-
 15. **Every phase runs inside its caps** — proves each session is started with
     its own turn cap and with only what is left of the cost cap, and that the
     evidence shows both
@@ -164,6 +156,15 @@ Increment: budgets and blocked-status routing (#31).
     - Verified by: `./scripts/issue-to-pr.test.sh` — the fake `claude` logs each
       call's flags: turns 30/15/80, budgets 5, then 5 minus each phase's cost; env
       overrides change both; a non-numeric cap exits 2 before anything starts
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+Increment: budgets and blocked-status routing (#31).
+
 16. **Hitting a limit stops the run and says which** — proves a spent budget, a
     turn cap or a blocked plan ends the sequence on the honest-failure path
     - `scripts/issue-to-pr.sh` (stop on spent budget, on `## Status: blocked`),
@@ -258,3 +259,7 @@ Increment: budgets and blocked-status routing (#31).
   (142 orchestrator checks, exit 0).
 - #31 planned on `feat/budgets`, cut from `origin/main` after #39 merged.
   Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 15 done: sessions start with turn caps 30/15/80 and `--max-budget-usd`
+  set to what is left of $5; caps are env-overridable and validated before the
+  issue is fetched; the evidence carries `budget` and each phase's `subtype` (153
+  orchestrator checks, exit 0). Next: slice 16, stopping on a hit limit.
