@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: complete
+## Status: planned
 
 ## Completed
 
@@ -133,6 +133,26 @@
 
 ## Next Steps
 
+Increment: base-branch override from the issue (#26).
+
+13. **An issue's base reaches every place the base is used** — proves a
+    `base:<branch>` label or `Base: <branch>` body line moves the worktree cut, the
+    phase prompts, the evidence diff and the PR to that branch
+    - `scripts/issue-to-pr.sh` (resolve from labels and body; default `main`)
+    - Verified by: `./scripts/issue-to-pr.test.sh` — the sandbox origin gains a
+      `release` branch with a commit `main` lacks; with the label, then with the
+      body line: the worktree contains that commit, every phase prompt says
+      `--base release`, `evidence.json` has `base_ref: release`, and the PR is
+      `--base release`; with neither, all of it is `main`
+14. **A base that cannot be right is refused before anything starts** — proves a
+    conflicting, malformed, missing or self-referential base exits 2 with no
+    scoring, comment, worktree or PR
+    - `scripts/issue-to-pr.sh` (conflict check, charset + `git check-ref-format`,
+      `git ls-remote`, not `agent/issue-N`)
+    - Verified by: `./scripts/issue-to-pr.test.sh` — label `base:release` with body
+      `Base: main`; `Base: x;rm`; `base:nope`; `base:agent/issue-7` — each exit 2,
+      the scorer never called, no worktree, no PR
+
 ## Session Notes
 
 - Base branch: `main` (confirmed at the Phase 2 gate). Working branch
@@ -205,3 +225,5 @@
   exit 0). Label setup moved up between the gates. The fake `gh` now remembers
   labels it created — with labels set up before the branch check, the test's
   second run would otherwise have recreated them, which real GitHub would not.
+- #26 planned on `feat/base-override`, cut from `origin/main` after #38 merged.
+  Base branch: `main` (confirmed at the Phase 2 gate).
