@@ -658,3 +658,100 @@ and must stay first.
 ## Out of Scope
 
 - A `--base` flag on the harness itself — the issue is the record of intent.
+
+---
+
+# Increment: budgets and blocked-status routing (#31)
+
+Tracks [#31](https://github.com/fernandodof/cal.diy-2/issues/31). Builds on #27
+(merged in #35); independent of #25/#26.
+
+## Overview
+
+Each phase session gets its own turn cap and the run a total cost cap of $5,
+**enforced inside the sessions**: every phase is started with
+`--max-budget-usd` set to what is left of the cap. Hitting a cap, or a plan left
+at `## Status: blocked`, stops the remaining phases; the collector still runs,
+the evidence records the budget, and the verdict says which limit was hit.
+
+## Problem Statement
+
+Each session today runs to `HEADLESS_TASK_MAX_TURNS` (default 40,
+`scripts/headless-task.sh:20`) whatever the phase, and nothing bounds what a run
+costs: three phases at 40 turns each have no ceiling. A phase that marks the plan
+blocked without also writing `Outcome: blocked` would let the next phase start.
+
+## Technical Design
+
+### Caps and their names
+
+| Variable | Default |
+|---|---|
+| `HEADLESS_TASK_MAX_TURNS_RESEARCH` | 30 |
+| `HEADLESS_TASK_MAX_TURNS_PLAN` | 15 |
+| `HEADLESS_TASK_MAX_TURNS_IMPLEMENT` | 80 |
+| `HEADLESS_TASK_MAX_COST_USD` | 5 |
+
+`HEADLESS_TASK_*` as #31 asks. The Review cap (30) arrives with the Review phase
+in #30; nothing here reserves it.
+
+### Enforcement
+
+- **Turns:** each phase is started with `--max-turns <its cap>` (the runner
+  already passes `--max-turns`, `scripts/headless-task.sh:116`).
+- **Cost:** `headless-task.sh` gains `--max-budget-usd` (passed through; the CLI
+  supports it in `--print` mode, `claude --help`). Before each phase the harness
+  computes `remaining = cap − spent so far`; at `remaining ≤ 0` the phase is not
+  started; otherwise it is started with `--max-budget-usd remaining`. So the cap
+  holds within a session, not only between them. Sums use `jq` (bash has no
+  floats).
+- **Why a phase stopped** comes from its `summary.json` `subtype`, which each
+  phase record now carries: `error_max_turns` is a turn cap. The CLI's subtype
+  for a spent budget is not documented in `--help`, so the harness does not rely
+  on it: the cost cap counts as exceeded when `spent ≥ cap`, whatever the
+  subtype.
+- **Blocked plan:** after each phase, a `## Status: blocked` in
+  `<spec>/implementation.md` stops the sequence, independently of the gate's
+  `Outcome`.
+
+### Evidence (`implement-evidence/1`, additive)
+
+- `phases[].subtype` — the session's subtype.
+- `budget`:
+  `{cost_cap_usd, spent_usd, turn_caps: {"1-research": 30, …}, exceeded: null | "cost" | "turns:<phase>"}`.
+- `plan_status` — the `## Status:` value of `implementation.md`, or `null`.
+
+### Verdict
+
+- `budget.exceeded == "cost"` → "budget: spent $X of the $Y cap".
+- `budget.exceeded == "turns:<phase>"` → "budget: <phase> hit its <n>-turn cap".
+- `plan_status == "blocked"` → "plan: implementation.md says blocked — see its `## Blocked`".
+- The block gains a Budget row: spent / cap, and the turn caps.
+
+These sit beside the per-phase reasons from #27; a turn cap is also a failed
+phase there, and both lines are kept — one says *that* it stopped, the other
+*why*.
+
+### Files
+
+| File | Change |
+|---|---|
+| `scripts/headless-task.sh` | `--max-budget-usd` pass-through |
+| `scripts/issue-to-pr.sh` | per-phase turn caps, remaining budget, stop on cost or blocked plan, `budget.json` |
+| `scripts/implement-evidence.sh` | `budget`, `plan_status`, `phases[].subtype` |
+| `scripts/implement-verdict.sh` | three rules, Budget row |
+| `docs/harness/implement-evidence-schema.md` | the new fields |
+
+Five non-test files.
+
+## Edge Cases
+
+- **A phase with no summary** counts as $0 spent — the run cannot be charged for
+  what it cannot read — but that phase is already red as "without a summary".
+- **The budget runs out between phases** → the next phase is not started; it is
+  absent from `phases`, so "N phase(s) never ran" (#27) still reports it.
+- **Caps that are not numbers** → exit 2 before anything starts.
+
+## Out of Scope
+
+- The Review phase's cap (#30). Billing outside the CLI's own `total_cost_usd`.

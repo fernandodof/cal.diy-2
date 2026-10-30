@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: complete
+## Status: planned
 
 ## Completed
 
@@ -152,6 +152,29 @@
 
 ## Next Steps
 
+Increment: budgets and blocked-status routing (#31).
+
+15. **Every phase runs inside its caps** — proves each session is started with
+    its own turn cap and with only what is left of the cost cap, and that the
+    evidence shows both
+    - `scripts/headless-task.sh` (`--max-budget-usd`), `scripts/issue-to-pr.sh`
+      (per-phase `--max-turns`, remaining budget, cap validation, `budget.json`),
+      `scripts/implement-evidence.sh` (`budget`, `phases[].subtype`),
+      `scripts/implement-verdict.sh` (Budget row)
+    - Verified by: `./scripts/issue-to-pr.test.sh` — the fake `claude` logs each
+      call's flags: turns 30/15/80, budgets 5, then 5 minus each phase's cost; env
+      overrides change both; a non-numeric cap exits 2 before anything starts
+16. **Hitting a limit stops the run and says which** — proves a spent budget, a
+    turn cap or a blocked plan ends the sequence on the honest-failure path
+    - `scripts/issue-to-pr.sh` (stop on spent budget, on `## Status: blocked`),
+      `scripts/implement-evidence.sh` (`plan_status`, `exceeded`),
+      `scripts/implement-verdict.sh` (three rules),
+      `docs/harness/implement-evidence-schema.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh` — a phase costing more than the
+      cap → no next phase, red draft PR naming the cost; `error_max_turns` in
+      Plan → no Implement, the reason names the cap; a plan at `## Status:
+      blocked` with `Outcome: continue` → stops; verdict fixtures for each rule
+
 ## Session Notes
 
 - Base branch: `main` (confirmed at the Phase 2 gate). Working branch
@@ -233,3 +256,5 @@
 - Slice 14 done: conflicting, malformed (`x;rm`, `a..b`), missing and
   self-referential bases exit 2 before the scorer runs or anything is created
   (142 orchestrator checks, exit 0).
+- #31 planned on `feat/budgets`, cut from `origin/main` after #39 merged.
+  Base branch: `main` (confirmed at the Phase 2 gate).
