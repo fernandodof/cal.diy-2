@@ -67,6 +67,12 @@ POLICY='
         elif .outcome == "blocked" then "phase \(.phase): blocked — see `\($spec)/gates/\(.phase).md`"
         elif .outcome == null then "phase \(.phase): left no gate file saying it finished"
         else empty end ),
+    (if .budget.exceeded == "cost" then "budget: spent $\(.budget.spent_usd * 100 | round / 100) of the $\(.budget.cost_cap_usd) cap"
+     elif (.budget.exceeded // "" | startswith("turns:")) then
+       (.budget.exceeded | ltrimstr("turns:")) as $p
+       | "budget: \($p) hit its \(.budget.turn_caps[$p])-turn cap"
+     else empty end),
+    (if .plan_status == "blocked" then "plan: implementation.md says blocked — see its `## Blocked`" else empty end),
     (if .phases != null and (.phases | length) < 3
      then "phases: stopped after \(.phases[-1].phase); \(3 - (.phases | length)) phase(s) never ran"
      else empty end),

@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -157,14 +157,6 @@
       call's flags: turns 30/15/80, budgets 5, then 5 minus each phase's cost; env
       overrides change both; a non-numeric cap exits 2 before anything starts
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: budgets and blocked-status routing (#31).
-
 16. **Hitting a limit stops the run and says which** — proves a spent budget, a
     turn cap or a blocked plan ends the sequence on the honest-failure path
     - `scripts/issue-to-pr.sh` (stop on spent budget, on `## Status: blocked`),
@@ -175,6 +167,12 @@ Increment: budgets and blocked-status routing (#31).
       cap → no next phase, red draft PR naming the cost; `error_max_turns` in
       Plan → no Implement, the reason names the cap; a plan at `## Status:
       blocked` with `Outcome: continue` → stops; verdict fixtures for each rule
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -263,3 +261,6 @@ Increment: budgets and blocked-status routing (#31).
   set to what is left of $5; caps are env-overridable and validated before the
   issue is fetched; the evidence carries `budget` and each phase's `subtype` (153
   orchestrator checks, exit 0). Next: slice 16, stopping on a hit limit.
+- Slice 16 done: a spent cost cap stops before the next phase, a turn cap and a
+  plan at `## Status: blocked` stop after theirs, each on the red draft-PR path
+  with its own reason (41 verdict, 163 orchestrator checks; both exit 0).

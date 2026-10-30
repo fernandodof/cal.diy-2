@@ -96,8 +96,8 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
       gate 1-research ;;
     2)
       # FAKE_VERIFY replaces the declared commands; set it empty to declare none.
-      printf '# plan\n\n## Verification\n\n```sh\n%s\n```\n' \
-        "${FAKE_VERIFY-yarn test thing.test.ts}" > specs/thing/implementation.md
+      printf '# plan\n\n## Status: %s\n\n## Verification\n\n```sh\n%s\n```\n' \
+        "${FAKE_PLAN_STATUS:-planned}" "${FAKE_VERIFY-yarn test thing.test.ts}" > specs/thing/implementation.md
       gate 2-plan ;;
     3)
       if [[ "$mode" == docs ]]; then
@@ -258,6 +258,27 @@ SB="$(sandbox)"
 run "$SB" HEADLESS_TASK_MAX_COST_USD=2 HEADLESS_TASK_MAX_TURNS_RESEARCH=10 \
   HEADLESS_TASK_MAX_TURNS_PLAN=5 HEADLESS_TASK_MAX_TURNS_IMPLEMENT=20 >/dev/null
 check "every cap can be overridden" "10:2 5:1.9 20:1.8" "$(caps_per_call)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a phase that spends the whole cap exits 1" "1" "$(run "$SB" FAKE_COST=6)"
+check "  no phase starts once the cap is spent" "1" "$(wc -l < "$SB/log/claude.argv" | xargs)"
+check "  the partial work still reaches a red draft PR" "1" \
+  "$(grep -c '^pr create --draft .*--label agent:needs-help' "$SB/log/gh.log")"
+check "  the body names the cost" "1" "$(grep -c '^- budget: spent \$6 of the \$5 cap$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a Plan that hits its turn cap exits 1" "1" "$(run "$SB" FAKE_FAIL_PHASE=2)"
+check "  Implement never starts" "2" "$(wc -l < "$SB/log/claude.argv" | xargs)"
+check "  the body names the cap" "1" "$(grep -c '^- budget: 2-plan hit its 15-turn cap$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a plan marked blocked exits 1" "1" "$(run "$SB" FAKE_PLAN_STATUS=blocked)"
+check "  stops though its gate said continue" "2" "$(wc -l < "$SB/log/claude.argv" | xargs)"
+check "  the body says the plan is blocked" "1" \
+  "$(grep -cF -- '- plan: implementation.md says blocked — see its `## Blocked`' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 for bad in HEADLESS_TASK_MAX_COST_USD=five HEADLESS_TASK_MAX_COST_USD=0 HEADLESS_TASK_MAX_TURNS_PLAN=-1; do

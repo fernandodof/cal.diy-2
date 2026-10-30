@@ -235,6 +235,10 @@ for phase in 1-research 2-plan 3-implement; do
     3-implement) TURNS="$MAX_TURNS_IMPLEMENT" ;;
   esac
   REMAINING="$(jq -s --argjson cap "$MAX_COST_USD" '$cap - (map(.cost_usd // 0) | add // 0)' "$RUN_DIR/phases.jsonl")"
+  if jq -en --argjson r "$REMAINING" '$r <= 0' >/dev/null; then
+    echo "issue-to-pr: stopping before phase $phase — the \$$MAX_COST_USD cost cap is spent" >&2
+    break
+  fi
   echo "issue-to-pr: phase $phase (up to $TURNS turns, \$$REMAINING left)" >&2
   printf '%s' "$TASK" | "$REPO_ROOT/scripts/headless-task.sh" \
     --run-id "$RUN_ID/$phase" --workdir "$WORKTREE" \
@@ -257,6 +261,11 @@ for phase in 1-research 2-plan 3-implement; do
   # that failed, blocked, or left no gate saying it finished.
   if [[ "$(jq -r '.status' "$RUN_DIR/$phase/summary.json" 2>/dev/null)" != "completed" || "$OUTCOME" != "continue" ]]; then
     echo "issue-to-pr: stopping after phase $phase (session $(jq -r '.status // "missing"' "$RUN_DIR/$phase/summary.json" 2>/dev/null || echo missing), gate ${OUTCOME:-missing})" >&2
+    break
+  fi
+  # A plan marked blocked is a stop on its own, whatever the gate file says.
+  if [[ -n "$SPEC" ]] && grep -qE '^## Status: blocked[[:space:]]*$' "$WORKTREE/$SPEC/implementation.md" 2>/dev/null; then
+    echo "issue-to-pr: stopping after phase $phase — $SPEC/implementation.md says blocked" >&2
     break
   fi
 done
