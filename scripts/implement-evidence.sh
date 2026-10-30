@@ -187,12 +187,13 @@ fi
 # The caps the harness ran under and what the phases spent against them.
 BUDGET="null"
 if [[ -f "$BUDGET_FILE" ]] && jq -e 'type == "object"' "$BUDGET_FILE" >/dev/null 2>&1; then
-  # The cost cap counts as hit once spending reaches it, whatever subtype the
-  # CLI gave the session that crossed it; a turn cap is the CLI's own subtype.
+  # The cost cap is hit once spending reaches it or a session stopped on its
+  # budget (`error_max_budget_usd`); the CLI checks between turns, so the sum
+  # can land a little over the cap. A turn cap is `error_max_turns`.
   BUDGET="$(jq -c --argjson phases "$PHASES" '
     (($phases // []) | map(.cost_usd // 0) | add // 0) as $spent
     | . + {spent_usd: $spent,
-           exceeded: (if $spent >= .cost_cap_usd then "cost"
+           exceeded: (if $spent >= .cost_cap_usd or any(($phases // [])[]; .subtype == "error_max_budget_usd") then "cost"
                       else (first(($phases // [])[] | select(.subtype == "error_max_turns") | "turns:\(.phase)") // null)
                       end)}' "$BUDGET_FILE")"
 fi

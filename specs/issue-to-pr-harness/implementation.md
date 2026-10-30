@@ -264,3 +264,8 @@
 - Slice 16 done: a spent cost cap stops before the next phase, a turn cap and a
   plan at `## Status: blocked` stop after theirs, each on the red draft-PR path
   with its own reason (41 verdict, 163 orchestrator checks; both exit 0).
+- A real probe of `--max-budget-usd` (two Haiku calls) showed decimals work, an
+  exhausted budget reports `error_max_budget_usd`, and the CLI checks between
+  turns, so a run can end slightly over its cap. The collector now also counts
+  that subtype as the cost cap; documented in the schema (165 orchestrator
+  checks, exit 0).

@@ -115,7 +115,8 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
   git -c user.email=a@b -c user.name=agent commit --quiet -m "phase $phase"
 fi
 if [[ -n "$phase" && ( "${FAKE_FAIL_PHASE:-}" == "$phase" || ( "$mode" == fail && "$phase" == 3 ) ) ]]; then
-  echo '{"is_error": true, "subtype": "error_max_turns", "num_turns": 40, "total_cost_usd": 1}'
+  jq -nc --arg subtype "${FAKE_FAIL_SUBTYPE:-error_max_turns}" \
+    '{is_error: true, subtype: $subtype, num_turns: 40, total_cost_usd: 1}'
 else
   jq -nc --argjson cost "${FAKE_COST:-0.1}" \
     '{is_error: false, subtype: "success", result: "Did the thing.", num_turns: 3, total_cost_usd: $cost}'
@@ -266,6 +267,13 @@ check "  no phase starts once the cap is spent" "1" "$(wc -l < "$SB/log/claude.a
 check "  the partial work still reaches a red draft PR" "1" \
   "$(grep -c '^pr create --draft .*--label agent:needs-help' "$SB/log/gh.log")"
 check "  the body names the cost" "1" "$(grep -c '^- budget: spent \$6 of the \$5 cap$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a session the CLI stopped on its budget exits 1" "1" \
+  "$(run "$SB" FAKE_FAIL_PHASE=2 FAKE_FAIL_SUBTYPE=error_max_budget_usd)"
+check "  counts as the cost cap, though the sum is under it" "cost" \
+  "$(jq -r '.budget.exceeded' "$SB/runs/issue-7/evidence.json")"
 rm -rf "$SB"
 
 SB="$(sandbox)"

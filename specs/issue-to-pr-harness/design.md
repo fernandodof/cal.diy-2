@@ -706,10 +706,12 @@ in #30; nothing here reserves it.
   holds within a session, not only between them. Sums use `jq` (bash has no
   floats).
 - **Why a phase stopped** comes from its `summary.json` `subtype`, which each
-  phase record now carries: `error_max_turns` is a turn cap. The CLI's subtype
-  for a spent budget is not documented in `--help`, so the harness does not rely
-  on it: the cost cap counts as exceeded when `spent ≥ cap`, whatever the
-  subtype.
+  phase record now carries: `error_max_turns` is a turn cap. The cost cap counts
+  as exceeded when `spent ≥ cap` **or** a session's subtype is
+  `error_max_budget_usd`. *Phase 3 probe (two real Haiku calls): decimals are
+  accepted; an exhausted budget reports `error_max_budget_usd`; and the CLI
+  checks between turns — $0.0017 was spent against a $0.0001 budget — so a run
+  can end slightly over its cap.*
 - **Blocked plan:** after each phase, a `## Status: blocked` in
   `<spec>/implementation.md` stops the sequence, independently of the gate's
   `Outcome`.

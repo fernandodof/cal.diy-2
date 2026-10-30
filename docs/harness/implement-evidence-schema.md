@@ -36,7 +36,7 @@ copied from what the agent said about its own work. Facts it cannot reach are
     {
       "phase": "1-research",             // "1-research" | "2-plan" | "3-implement"
       "status": "completed",             // the session's summary.json; null if it left none
-      "subtype": "success",              // the CLI's; "error_max_turns" is a hit turn cap
+      "subtype": "success",              // the CLI's; error_max_turns / error_max_budget_usd are hit caps
       "turns": 12,
       "cost_usd": 0.4,
       "outcome": "continue"              // the gate file's first line; null if there is none
@@ -135,10 +135,11 @@ sequence stopped there. `outcome` comes from the first line of
 **`budget`** records the caps the run was held to. Each phase is started with
 `--max-turns <its cap>` and `--max-budget-usd` set to what is left of the cost
 cap, so the cap holds inside a session; once nothing is left, no further phase
-starts. `exceeded` is `"cost"` when spending reached the cap — judged from the
-sum, not from the CLI's subtype for a spent budget, which its `--help` does not
-document — else `"turns:<phase>"` for the first phase whose subtype is
-`error_max_turns`.
+starts. The CLI checks the budget between turns, so a run can end slightly over
+its cap — a real probe spent $0.0017 against a $0.0001 budget. `exceeded` is
+`"cost"` when spending reached the cap or a session stopped with subtype
+`error_max_budget_usd`, else `"turns:<phase>"` for the first phase whose subtype
+is `error_max_turns`.
 
 **`plan_status`** is read as a fact; the harness also stops the sequence on
 `blocked`, whatever the gate file's `Outcome` says.
