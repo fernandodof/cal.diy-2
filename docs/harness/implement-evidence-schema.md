@@ -34,7 +34,7 @@ copied from what the agent said about its own work. Facts it cannot reach are
   },
   "phases": [                            // one per session started, in order
     {
-      "phase": "1-research",             // "1-research" | "2-plan" | "3-implement"
+      "phase": "1-research",             // "1-research" | "2-plan" | "3-implement" | "4-review" | "fix"
       "status": "completed",             // the session's summary.json; null if it left none
       "subtype": "success",              // the CLI's; error_max_turns / error_max_budget_usd are hit caps
       "turns": 12,
@@ -45,10 +45,19 @@ copied from what the agent said about its own work. Facts it cannot reach are
   "budget": {                            // null if the harness recorded none
     "cost_cap_usd": 5,                   // HEADLESS_TASK_MAX_COST_USD
     "spent_usd": 1.2,                    // phases' cost_usd summed
-    "turn_caps": { "1-research": 30, "2-plan": 15, "3-implement": 80 },
+    "turn_caps": { "1-research": 30, "2-plan": 15, "3-implement": 80, "4-review": 30, "fix": 40 },
     "exceeded": null                     // null | "cost" | "turns:<phase>"
   },
   "plan_status": "complete",             // implementation.md's ## Status:; null if none
+  "review": {                            // null if the review did not run or left no review.json
+    "findings": [
+      { "axis": "spec",                  // "spec" | "standards"
+        "kind": "missing",               // spec: missing | creep | wrong; standards: violation | smell
+        "severity": "hard",              // "hard" | "judgement" (smells are always judgement)
+        "summary": "…", "where": "path:line", "quote": "the spec line" }
+    ],
+    "fix_round_applied": true            // a fix session ran on these findings
+  },
   "diff": {                              // against merge_base; null without one
     "files_changed": 4,
     "insertions": 120,
@@ -144,8 +153,15 @@ is `error_max_turns`.
 **`plan_status`** is read as a fact; the harness also stops the sequence on
 `blocked`, whatever the gate file's `Outcome` says.
 
-**`agent`** is `phases` summed: `completed` only when all three ran, completed and
-continued; otherwise `failed` (a session failed), `blocked` (a gate said so) or
+**`review`** comes from `.claude/headless-runs/review.json`, which Phase 4 —
+`/code-review` on the branch — writes beside its committed gate file. A spec
+finding of kind `missing` or `wrong` triggers exactly one `fix` session on those
+findings; nothing triggers a second, and the review is not run again, so the
+findings are the ones the fix round was given. Findings do not turn the verdict
+red — a review that recorded none does.
+
+**`agent`** is `phases` summed: `completed` only when all four ran (plus the fix
+round, when there was one), completed and continued; otherwise `failed` (a session failed), `blocked` (a gate said so) or
 `incomplete` (anything else short of three). It is a fact about the sessions, not
 evidence about the code: a phase that hit its turn limit can still leave correct
 commits, so the verdict marks it red for a human and the checks say whether the

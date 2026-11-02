@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -181,14 +181,6 @@
       render by axis; no `review.json` → red; a stopped earlier phase → no review —
       and verdict fixtures
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: review phase with one spec fix round (#30).
-
 18. **Spec findings get exactly one fix round** — proves a missing or wrong
     requirement triggers one fix session and nothing else does
     - `.claude/skills/implement-task/headless.md` (fix round),
@@ -198,6 +190,12 @@ Increment: review phase with one spec fix round (#30).
     - Verified by: `./scripts/issue-to-pr.test.sh` — a `missing` spec finding →
       exactly one fix session and no second review; `wrong` likewise; standards-only
       and creep-only findings → none; a failed fix session → red
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -301,3 +299,9 @@ Increment: review phase with one spec fix round (#30).
   reach the evidence and the body by axis; a review that recorded nothing is red
   (43 verdict, 175 orchestrator checks; both exit 0). A complete run is now four
   phases and four commits. Next: slice 18, the fix round.
+- Slice 18 done: a `missing` or `wrong` spec finding runs exactly one fix
+  session (40-turn cap, rest of the budget) and no second review; standards and
+  creep findings run none; a failed fix round is red (193 orchestrator checks,
+  43 verdict; both exit 0). Found while testing: `n=fix` made the old
+  `[[ $n -eq 1 ]]` checks read an unset variable under `set -u`; they now compare
+  the phase name. The orchestrator suite now takes over two minutes.

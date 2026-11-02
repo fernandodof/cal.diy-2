@@ -79,7 +79,7 @@ cat > "$FAKE_LOG/claude.stdin"
 pwd > "$FAKE_LOG/claude.cwd"
 # The prompt may not end in a newline; give each call its own line regardless.
 printf '%s\n' "$(head -1 "$FAKE_LOG/claude.stdin")" >> "$FAKE_LOG/claude.calls"
-phase="$(head -1 "$FAKE_LOG/claude.stdin" | sed -n 's/.*--phase \([0-9]\).*/\1/p')"
+phase="$(head -1 "$FAKE_LOG/claude.stdin" | sed -n 's/.*--phase \([0-9a-z]*\).*/\1/p')"
 mode="${FAKE_CLAUDE:-commit}"
 outcome_var="FAKE_OUTCOME_${phase:-0}"
 gate() {
@@ -115,6 +115,9 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
       mkdir -p .claude/headless-runs
       no_findings='{"findings": []}'
       [[ "${FAKE_REVIEW:-}" == none ]] || echo "${FAKE_REVIEW:-$no_findings}" > .claude/headless-runs/review.json ;;
+    fix)
+      gate fix
+      echo "export const x = 2;" > thing.ts ;;
   esac
   # Everything but the PR body draft, which headless.md says is never committed.
   git add -A -- . ':!.claude'
@@ -282,6 +285,43 @@ run "$SB" FAKE_FAIL_PHASE=3 >/dev/null
 check "no review runs after a failed Implement" "0" "$(grep -c -- '--phase 4' "$SB/log/claude.calls" || true)"
 rm -rf "$SB"
 
+# --- fix round --------------------------------------------------------------
+fix_calls() { grep -c -- '--phase fix' "$SB/log/claude.calls" || true; }
+for kind in missing wrong; do
+  SB="$(sandbox)"
+  # Built outside the substitution: inline, the braces reached the fake expanded.
+  REVIEW="$(jq -nc --arg kind "$kind" '{findings: [{axis: "spec", kind: $kind, severity: "hard", summary: "s"}]}')"
+  check "a $kind requirement runs green after its fix round" "0" "$(run "$SB" FAKE_REVIEW="$REVIEW")"
+  check "  exactly one fix session, after the review" "4 fix" \
+    "$(sed -n 's/.*--phase \([0-9a-z]*\).*/\1/p' "$SB/log/claude.calls" | tail -2 | xargs)"
+  check "  and no second review" "1" "$(grep -c -- '--phase 4' "$SB/log/claude.calls")"
+  check "  the fix session gets its own cap and the rest of the budget" "40:4.6" \
+    "$(sed -n -E 's/.*--max-turns ([0-9]+) .*--max-budget-usd ([0-9.]+) .*/\1:\2/p' "$SB/log/claude.argv" | tail -1)"
+  check "  its commit is on the branch" "export const x = 2;" "$(cat "$SB/worktrees/issue-7/thing.ts")"
+  check "  the evidence says the fix round ran" "true" "$(jq '.review.fix_round_applied' "$SB/runs/issue-7/evidence.json")"
+  check "  the body shows the findings it was given" "1" "$(grep -c '^### Review (before the fix round)$' "$SB/runs/issue-7/pr-body.md")"
+  rm -rf "$SB"
+done
+
+for findings in standards creep; do
+  SB="$(sandbox)"
+  if [[ "$findings" == standards ]]; then
+    REVIEW='{"findings": [{"axis": "standards", "kind": "violation", "severity": "hard", "summary": "s"}]}'
+  else
+    REVIEW='{"findings": [{"axis": "spec", "kind": "creep", "severity": "hard", "summary": "s"}]}'
+  fi
+  run "$SB" FAKE_REVIEW="$REVIEW" >/dev/null
+  check "$findings findings alone get no fix round" "0 false" \
+    "$(fix_calls) $(jq '.review.fix_round_applied' "$SB/runs/issue-7/evidence.json")"
+  rm -rf "$SB"
+done
+
+SB="$(sandbox)"
+check "a failed fix round exits 1" "1" \
+  "$(run "$SB" FAKE_FAIL_PHASE=fix FAKE_REVIEW='{"findings": [{"axis": "spec", "kind": "missing", "severity": "hard", "summary": "s"}]}')"
+check "  the body names the fix round" "1" "$(grep -c '^- phase fix: the session ended failed$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
 # --- budgets ----------------------------------------------------------------
 # "<turn cap> <budget>" for each phase session, in order.
 caps_per_call() {
@@ -290,11 +330,11 @@ caps_per_call() {
 SB="$(sandbox)"
 run "$SB" >/dev/null
 check "each phase gets its own turn cap and only what is left of \$5" "30:5 15:4.9 80:4.8 30:4.7" "$(caps_per_call)"
-check "the evidence records the caps and what was spent" "5 0.4 30,15,80,30" \
+check "the evidence records the caps and what was spent" "5 0.4 30,15,80,30,40" \
   "$(jq -r '.budget | "\(.cost_cap_usd) \(.spent_usd * 10 | round / 10) \(.turn_caps | [.[]] | join(","))"' "$SB/runs/issue-7/evidence.json")"
 check "and each phase's subtype" "success,success,success,success" \
   "$(jq -r '[.phases[].subtype] | join(",")' "$SB/runs/issue-7/evidence.json")"
-check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.4 of \$5; turn caps 1-research 30, 2-plan 15, 3-implement 80, 4-review 30 |$' "$SB/runs/issue-7/pr-body.md")"
+check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.4 of \$5; turn caps 1-research 30, 2-plan 15, 3-implement 80, 4-review 30, fix 40 |$' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 SB="$(sandbox)"

@@ -210,7 +210,8 @@ REVIEW="null"
 REVIEW_FILE="$WORKTREE/.claude/headless-runs/review.json"
 if jq -e 'any(.[]?; .phase == "4-review")' <<<"$PHASES" >/dev/null 2>&1 \
   && jq -e '.findings | type == "array"' "$REVIEW_FILE" >/dev/null 2>&1; then
-  REVIEW="$(jq -c '{findings: [.findings[] | {axis, kind, severity, summary, where, quote}], fix_round_applied: false}' "$REVIEW_FILE")"
+  REVIEW="$(jq -c --argjson phases "$PHASES" '{findings: [.findings[] | {axis, kind, severity, summary, where, quote}],
+    fix_round_applied: any($phases[]; .phase == "fix")}' "$REVIEW_FILE")"
 fi
 
 # Declared runs also write vitest's JSON report, one per command, which is what
