@@ -1,6 +1,6 @@
 # Duration Type Tests Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -21,13 +21,6 @@
      `converts hours to minutes`, `converts hours to days`, `converts days to minutes`,
      `converts days to hours`
    - Verified by: `yarn test packages/lib/convertToNewDurationType.test.ts`
-
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 3. **`convertToNewDurationType` rounding and zero, as they are today** — pins
    `Math.ceil` on the three lossy directions and `0` in all nine directions (ADR-001)
    - `packages/lib/convertToNewDurationType.test.ts`
@@ -36,6 +29,14 @@
      `rounds hours to days up when not evenly divisible` (25 → 2),
      `returns 0 for a zero value in every direction`
    - Verified by: `yarn test packages/lib/convertToNewDurationType.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+None.
 
 Every test sits inside `describe("convertToNewDurationType")` or
 `describe("findDurationType")`, so its full name matches the acceptance criterion.
@@ -61,3 +62,8 @@ yarn test packages/lib/convertToNewDurationType.test.ts
   behaviour, so there was no red step. Next: slice 2, the nine conversion pairs.
 - Slice 2 done: `convertToNewDurationType.test.ts` added with all nine pairs, 9/9
   pass. Next: slice 3, rounding and zero.
+- Slice 3 done: rounding (90 → 2, 1500 → 2, 25 → 2) and zero-in-all-nine tests
+  added; 13/13 in `convertToNewDurationType.test.ts`, 4/4 in `findDurationType.test.ts`.
+  `yarn turbo run type-check --filter=@calcom/web` passes, but `apps/web` does not
+  import the new test files, so they are not covered by it. A direct `tsc` on
+  `packages/lib` needed approval the headless run did not have and was not run.
