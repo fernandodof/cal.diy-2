@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -238,6 +238,14 @@
       `yarn tsc --noEmit -p`; the allowlist has `Bash(yarn tsc --noEmit -p:*)`;
       the rules no longer say web covers `packages/lib`.
 
+
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 ## In Progress
 
 ## Blocked
@@ -393,3 +401,9 @@
   `packages/lib` is corrected (219 orchestrator checks, exit 0). A real-session
   probe (Haiku) ran `yarn tsc --noEmit -p packages/lib/tsconfig.json` under that
   rule; its compound form with `; echo` was denied. Next: slice 23, the tidy-ups.
+- Slice 23 done: costs render to the cent everywhere (`usd` in the verdict),
+  and displayed commands drop the `--outputFile.json` temp path. An earlier run
+  directory is moved aside as `issue-N-<timestamp>` rather than deleted, because
+  a refused re-run would otherwise erase the only logs. `Closes #N` appears once,
+  and a missing draft points at `gates/3-implement.md` (228 orchestrator, 44
+  verdict checks; both exit 0).

@@ -53,7 +53,9 @@ SCHEMA="$(jq -r '.schema // ""' <<<"$EVIDENCE")"
 
 # The whole policy. Each rule returns the reasons the evidence fails it. Missing
 # evidence fails closed: a fact the collector could not reach is not a pass.
-POLICY='
+# Dollars to the cent: a session reports its cost as 0.27312559999999997.
+USD='def usd: (. * 100 | round) as $c | "$\($c / 100 | floor).\($c % 100 | tostring | if length < 2 then "0" + . else . end)";'
+POLICY=$USD'
   [ (if .merge_base == null then "evidence: the merge base with \(.base_ref) could not be resolved" else empty end),
     (if .diff == null then "evidence: the diff against the base is unavailable" else empty end),
     (if .agent == null then "evidence: the agent sessions left no summary"
@@ -67,7 +69,7 @@ POLICY='
         elif .outcome == "blocked" then "phase \(.phase): blocked — see `\($spec)/gates/\(.phase).md`"
         elif .outcome == null then "phase \(.phase): left no gate file saying it finished"
         else empty end ),
-    (if .budget.exceeded == "cost" then "budget: spent $\(.budget.spent_usd * 100 | round / 100) of the $\(.budget.cost_cap_usd) cap"
+    (if .budget.exceeded == "cost" then "budget: spent \(.budget.spent_usd | usd) of the \(.budget.cost_cap_usd | usd) cap"
      elif (.budget.exceeded // "" | startswith("turns:")) then
        (.budget.exceeded | ltrimstr("turns:")) as $p
        | "budget: \($p) hit its \(.budget.turn_caps[$p])-turn cap"
@@ -99,7 +101,7 @@ POLICY='
         else empty end ) ]'
 
 # The block the PR body carries. The markers let a re-run replace it in place.
-RENDER='
+RENDER=$USD'
   def code: "`" + . + "`";
   def row: "| \(.name) | \(.source) | \(.command | code) | \(if .exit_code == 0 then "pass" else "fail (\(.exit_code))" end) |";
   def details: "<details><summary>\(.name) — last lines</summary>\n\n```\n\(.log_tail)\n```\n</details>";
@@ -120,13 +122,13 @@ RENDER='
       "| Diff | \(if $ev.diff then "\($ev.diff.files_changed) files, +\($ev.diff.insertions) −\($ev.diff.deletions)" else "unavailable" end) |",
       "| Spec | \(($ev.spec // "not found") | code) |",
       (if $ev.budget then
-        "| Budget | $\($ev.budget.spent_usd * 100 | round / 100) of $\($ev.budget.cost_cap_usd); turn caps "
+        "| Budget | \($ev.budget.spent_usd | usd) of \($ev.budget.cost_cap_usd | usd); turn caps "
         + ($ev.budget.turn_caps | to_entries | map("\(.key) \(.value)") | join(", ")) + " |"
       else empty end),
       "",
       (if $ev.phases then
         "### Phases\n\n| Phase | Session | Gate | Turns | Cost |\n|---|---|---|---|---|\n"
-        + ($ev.phases | map("| \(.phase) | \(.status // "no summary") | \(.outcome // "missing") | \(.turns // "–") | \(if .cost_usd then "$\(.cost_usd)" else "–" end) |") | join("\n"))
+        + ($ev.phases | map("| \(.phase) | \(.status // "no summary") | \(.outcome // "missing") | \(.turns // "–") | \(if .cost_usd then (.cost_usd | usd) else "–" end) |") | join("\n"))
         + "\n"
       else empty end),
       (if $ev.criteria then

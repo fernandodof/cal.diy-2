@@ -112,9 +112,10 @@ run_check() {
       exit_code="null"
     fi
   fi
+  # The report path is a per-run temp file: it says nothing to a reader.
   jq -n \
     --arg name "$name" \
-    --arg command "$*" \
+    --arg command "$(sed -E 's/ --outputFile\.json=[^ ]*//' <<<"$*")" \
     --arg source "$source" \
     --argjson exit_code "$exit_code" \
     --arg log_tail "$(tail -n "$LOG_TAIL_LINES" "$log")" \

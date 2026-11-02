@@ -116,8 +116,13 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
       fi
       [[ "$mode" == web ]] && echo "export const p = 1;" > apps/web/page.ts
       gate 3-implement
+      # FAKE_DRAFT: "none" writes no draft; "closes" has it close the issue itself.
       mkdir -p .agent-handoff
-      printf '## What changed\n\nThe agent draft.\n' > .agent-handoff/pr-body.md ;;
+      case "${FAKE_DRAFT:-}" in
+        none) ;;
+        closes) printf '## What changed\n\nThe agent draft.\n\nCloses #7\n' > .agent-handoff/pr-body.md ;;
+        *) printf '## What changed\n\nThe agent draft.\n' > .agent-handoff/pr-body.md ;;
+      esac ;;
     4)
       # FAKE_REVIEW is the findings JSON; "none" writes no file at all.
       gate 4-review
@@ -383,7 +388,7 @@ check "the evidence records the caps and what was spent" "5 0.4 30,15,80,30,40" 
   "$(jq -r '.budget | "\(.cost_cap_usd) \(.spent_usd * 10 | round / 10) \(.turn_caps | [.[]] | join(","))"' "$SB/runs/issue-7/evidence.json")"
 check "and each phase's subtype" "success,success,success,success" \
   "$(jq -r '[.phases[].subtype] | join(",")' "$SB/runs/issue-7/evidence.json")"
-check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.4 of \$5; turn caps 1-research 30, 2-plan 15, 3-implement 80, 4-review 30, fix 40 |$' "$SB/runs/issue-7/pr-body.md")"
+check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.40 of \$5.00; turn caps 1-research 30, 2-plan 15, 3-implement 80, 4-review 30, fix 40 |$' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 SB="$(sandbox)"
@@ -397,7 +402,7 @@ check "a phase that spends the whole cap exits 1" "1" "$(run "$SB" FAKE_COST=6)"
 check "  no phase starts once the cap is spent" "1" "$(wc -l < "$SB/log/claude.argv" | xargs)"
 check "  the partial work still reaches a red draft PR" "1" \
   "$(grep -c '^pr create --draft .*--label agent:needs-help' "$SB/log/gh.log")"
-check "  the body names the cost" "1" "$(grep -c '^- budget: spent \$6 of the \$5 cap$' "$SB/runs/issue-7/pr-body.md")"
+check "  the body names the cost" "1" "$(grep -c '^- budget: spent \$6.00 of the \$5.00 cap$' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 SB="$(sandbox)"
@@ -578,6 +583,31 @@ git -C "$SB/repo" push --quiet origin main
 check "a changed .ts file in no project exits 1" "1" "$(run "$SB")"
 check "  it is listed as not covered" "null" "$(tc "$SB" "type-check: not covered" exit_code)"
 check "  with the file named" "thing.test.ts thing.ts" "$(tc "$SB" "type-check: not covered" log_tail | tr '\n' ' ' | sed 's/ $//')"
+rm -rf "$SB"
+
+# --- a readable evidence block ---------------------------------------------
+
+SB="$(sandbox)"
+mkdir -p "$SB/runs/issue-7" && echo "from an older run" > "$SB/runs/issue-7/stale.txt"
+check "a green run for the tidy-ups exits 0" "0" "$(run "$SB")"
+check "the run directory holds only this run's files" "no" "$([[ -f "$SB/runs/issue-7/stale.txt" ]] && echo yes || echo no)"
+check "  the earlier run's files are kept beside it" "1" "$(find "$SB/runs" -path "$SB/runs/issue-7-*/stale.txt" | wc -l | xargs)"
+check "the body shows no report temp path" "0" "$(grep -c 'outputFile' "$SB/runs/issue-7/pr-body.md" || true)"
+check "the evidence keeps the command without it" "yarn test thing.test.ts --reporter=default --reporter=json" \
+  "$(jq -r '.checks[] | select(.name == "test: thing.test.ts") | .command' "$SB/runs/issue-7/evidence.json")"
+check "phase costs show to the cent" "4" "$(grep -cE '^\| [0-9a-z-]+ \| completed \| continue \| [0-9]+ \| \$[0-9]+\.[0-9]{2} \|$' "$SB/runs/issue-7/pr-body.md")"
+check "the body closes the issue once" "1" "$(grep -c '^Closes #7$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" FAKE_DRAFT=closes >/dev/null
+check "a draft that closes the issue itself is not doubled" "1" "$(grep -c '^Closes #7$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" FAKE_DRAFT=none >/dev/null
+check "a missing draft points at Phase 3's gate" "1" \
+  "$(grep -cF 'look in `specs/thing/gates/3-implement.md`' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 # --- red path ---------------------------------------------------------------

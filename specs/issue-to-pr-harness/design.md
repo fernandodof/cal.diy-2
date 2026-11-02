@@ -1109,9 +1109,14 @@ type-check: packages/lib exited 1", and `null` as not run.
 - Check commands in the evidence show no temp paths. The `--outputFile.json=…`
   argument is dropped from the displayed command; the command that runs is
   unchanged.
-- The run directory is emptied at the start of a run, so it holds only that
-  run's files. Today `phases.jsonl` is emptied, but stale `result.json` and
-  `task.txt` files from older `headless-task.sh` runs survive.
+- At the start of a run, an existing run directory is moved aside as
+  `issue-N-<UTC timestamp>`, so the new directory holds only that run's files.
+  Today `phases.jsonl` is emptied, but stale `result.json` and `task.txt` files
+  from older `headless-task.sh` runs survive. The old directory is moved rather
+  than deleted because the new run may still be refused, for example at "branch
+  already exists", and its logs are the only record of the earlier run.
+- `Closes #N` appears once, even when the agent's draft has its own (seen in
+  run 2).
 - The no-draft fallback names the gate file the agent's draft may be in, when
   there is one.
 
