@@ -75,7 +75,7 @@ if [[ -n "$MERGE_BASE" ]]; then
 fi
 
 # One record per phase session the harness started, in order, and their sum.
-# The sum is only "completed" when all three phases ran, completed and chose to
+# The sum is only "completed" when all four phases ran, completed and chose to
 # continue — anything less is a sequence that stopped short.
 PHASES="null"
 AGENT="null"
@@ -84,7 +84,7 @@ if [[ -f "$PHASES_FILE" ]] && jq -e 'type == "array" and length > 0' "$PHASES_FI
   AGENT="$(jq '{
     status: (if any(.[]; .status == "failed") then "failed"
              elif any(.[]; .outcome == "blocked") then "blocked"
-             elif length < 3 or any(.[]; .status != "completed" or .outcome != "continue") then "incomplete"
+             elif length < 4 or any(.[]; .status != "completed" or .outcome != "continue") then "incomplete"
              else "completed" end),
     turns: (map(.turns // 0) | add),
     cost_usd: (map(.cost_usd // 0) | add)
@@ -204,6 +204,16 @@ if [[ -n "$SPEC" && -f "$WORKTREE/$SPEC/implementation.md" ]]; then
   PLAN_STATUS="$(sed -n -E 's/^## Status: *([a-z-]+)[[:space:]]*$/\1/p' "$WORKTREE/$SPEC/implementation.md" | head -1)"
 fi
 
+# The review's findings, as Phase 4 wrote them for the harness. Read only if the
+# review ran; an unreadable file is the same as none.
+REVIEW="null"
+REVIEW_FILE="$WORKTREE/.claude/headless-runs/review.json"
+if jq -e 'any(.[]?; .phase == "4-review")' <<<"$PHASES" >/dev/null 2>&1 \
+  && jq -e '.findings | type == "array"' "$REVIEW_FILE" >/dev/null 2>&1; then
+  REVIEW="$(jq -c --argjson phases "$PHASES" '{findings: [.findings[] | {axis, kind, severity, summary, where, quote}],
+    fix_round_applied: any($phases[]; .phase == "fix")}' "$REVIEW_FILE")"
+fi
+
 # Declared runs also write vitest's JSON report, one per command, which is what
 # acceptance criteria are judged against: an exit code cannot see a skipped test.
 REPORT_DIR="$(mktemp -d)"
@@ -306,6 +316,7 @@ jq -n \
   --argjson criteria "$CRITERIA" \
   --argjson budget "$BUDGET" \
   --arg plan_status "$PLAN_STATUS" \
+  --argjson review "$REVIEW" \
   '{
     schema: "implement-evidence/1",
     collected_at: $collected_at,
@@ -320,6 +331,7 @@ jq -n \
     phases: $phases,
     budget: $budget,
     plan_status: (if $plan_status == "" then null else $plan_status end),
+    review: $review,
     diff: $diff,
     checks: $checks,
     declared_commands: $declared_commands,

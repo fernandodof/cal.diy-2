@@ -60,7 +60,9 @@ MAX_COST_USD="${HEADLESS_TASK_MAX_COST_USD:-5}"
 MAX_TURNS_RESEARCH="${HEADLESS_TASK_MAX_TURNS_RESEARCH:-30}"
 MAX_TURNS_PLAN="${HEADLESS_TASK_MAX_TURNS_PLAN:-15}"
 MAX_TURNS_IMPLEMENT="${HEADLESS_TASK_MAX_TURNS_IMPLEMENT:-80}"
-for cap in "$MAX_TURNS_RESEARCH" "$MAX_TURNS_PLAN" "$MAX_TURNS_IMPLEMENT"; do
+MAX_TURNS_REVIEW="${HEADLESS_TASK_MAX_TURNS_REVIEW:-30}"
+MAX_TURNS_FIX="${HEADLESS_TASK_MAX_TURNS_FIX:-40}"
+for cap in "$MAX_TURNS_RESEARCH" "$MAX_TURNS_PLAN" "$MAX_TURNS_IMPLEMENT" "$MAX_TURNS_REVIEW" "$MAX_TURNS_FIX"; do
   [[ "$cap" =~ ^[1-9][0-9]*$ ]] || { echo "issue-to-pr: turn cap '$cap' is not a positive whole number" >&2; exit 2; }
 done
 [[ "$MAX_COST_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] && jq -en --argjson c "$MAX_COST_USD" '$c > 0' >/dev/null \
@@ -223,17 +225,30 @@ resolve_spec() {
 # should have stopped is judged there, not here.
 : > "$RUN_DIR/phases.jsonl"
 n=0
-for phase in 1-research 2-plan 3-implement; do
-  n=$((n + 1))
+# The fix round is not in the list: it runs at most once, after the review, and
+# only when the review found a requirement missing or wrong.
+FIX_PENDING=false
+for phase in 1-research 2-plan 3-implement 4-review fix; do
+  if [[ "$phase" == fix ]]; then
+    [[ "$FIX_PENDING" == true ]] || break
+    n=fix
+  else
+    n=$((n + 1))
+  fi
   TASK="/implement-task --headless --phase $n --base $BASE_REF $ISSUE_URL${SPEC:+ --spec $SPEC}"
-  if [[ $n -eq 1 ]]; then
+  if [[ "$phase" == 1-research ]]; then
     TASK+="$(jq -r '"\n\n# Issue #\(.number): \(.title)\n\n" + (.body // "(no description)")' "$RUN_DIR/issue.json")"
   fi
   case "$phase" in
     1-research) TURNS="$MAX_TURNS_RESEARCH" ;;
     2-plan) TURNS="$MAX_TURNS_PLAN" ;;
     3-implement) TURNS="$MAX_TURNS_IMPLEMENT" ;;
+    4-review) TURNS="$MAX_TURNS_REVIEW" ;;
+    fix) TURNS="$MAX_TURNS_FIX" ;;
   esac
+  # /code-review runs its two axes as sub-agents; only the review needs them.
+  PHASE_TOOLS="$ALLOWED_TOOLS"
+  [[ "$phase" == 4-review ]] && PHASE_TOOLS+=",Agent"
   REMAINING="$(jq -s --argjson cap "$MAX_COST_USD" '$cap - (map(.cost_usd // 0) | add // 0)' "$RUN_DIR/phases.jsonl")"
   if jq -en --argjson r "$REMAINING" '$r <= 0' >/dev/null; then
     echo "issue-to-pr: stopping before phase $phase — the \$$MAX_COST_USD cost cap is spent" >&2
@@ -242,11 +257,11 @@ for phase in 1-research 2-plan 3-implement; do
   echo "issue-to-pr: phase $phase (up to $TURNS turns, \$$REMAINING left)" >&2
   printf '%s' "$TASK" | "$REPO_ROOT/scripts/headless-task.sh" \
     --run-id "$RUN_ID/$phase" --workdir "$WORKTREE" \
-    --allowed-tools "$ALLOWED_TOOLS" --disallowed-tools "$DISALLOWED_TOOLS" \
+    --allowed-tools "$PHASE_TOOLS" --disallowed-tools "$DISALLOWED_TOOLS" \
     --max-turns "$TURNS" --max-budget-usd "$REMAINING" \
     - >/dev/null 2>&1 || true
 
-  [[ $n -eq 1 ]] && SPEC="$(resolve_spec || true)"
+  [[ "$phase" == 1-research ]] && SPEC="$(resolve_spec || true)"
   OUTCOME=""
   if [[ -n "$SPEC" && -f "$WORKTREE/$SPEC/gates/$phase.md" ]]; then
     [[ "$(head -1 "$WORKTREE/$SPEC/gates/$phase.md")" =~ ^Outcome:\ (continue|blocked)$ ]] \
@@ -263,6 +278,12 @@ for phase in 1-research 2-plan 3-implement; do
     echo "issue-to-pr: stopping after phase $phase (session $(jq -r '.status // "missing"' "$RUN_DIR/$phase/summary.json" 2>/dev/null || echo missing), gate ${OUTCOME:-missing})" >&2
     break
   fi
+  # Standards findings and scope creep are the reviewer's to weigh; a spec
+  # requirement that is missing or wrong is the one thing worth a second pass.
+  if [[ "$phase" == 4-review ]] && jq -e '.findings | any(.axis == "spec" and (.kind == "missing" or .kind == "wrong"))' \
+    "$WORKTREE/.claude/headless-runs/review.json" >/dev/null 2>&1; then
+    FIX_PENDING=true
+  fi
   # A plan marked blocked is a stop on its own, whatever the gate file says.
   if [[ -n "$SPEC" ]] && grep -qE '^## Status: blocked[[:space:]]*$' "$WORKTREE/$SPEC/implementation.md" 2>/dev/null; then
     echo "issue-to-pr: stopping after phase $phase — $SPEC/implementation.md says blocked" >&2
@@ -272,7 +293,8 @@ done
 jq -s . "$RUN_DIR/phases.jsonl" > "$RUN_DIR/phases.json"
 jq -n --argjson cost "$MAX_COST_USD" \
   --argjson research "$MAX_TURNS_RESEARCH" --argjson plan "$MAX_TURNS_PLAN" --argjson implement "$MAX_TURNS_IMPLEMENT" \
-  '{cost_cap_usd: $cost, turn_caps: {"1-research": $research, "2-plan": $plan, "3-implement": $implement}}' \
+  --argjson review "$MAX_TURNS_REVIEW" --argjson fix "$MAX_TURNS_FIX" \
+  '{cost_cap_usd: $cost, turn_caps: {"1-research": $research, "2-plan": $plan, "3-implement": $implement, "4-review": $review, "fix": $fix}}' \
   > "$RUN_DIR/budget.json"
 
 # --- evidence and verdict ---------------------------------------------------

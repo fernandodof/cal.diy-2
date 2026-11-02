@@ -141,16 +141,18 @@ check "zero commits is red" "1 red 1 agent:needs-help" \
 PHASED='.spec = "specs/thing" | .phases = [
   {phase: "1-research", status: "completed", turns: 5, cost_usd: 0.1, outcome: "continue"},
   {phase: "2-plan", status: "completed", turns: 3, cost_usd: 0.1, outcome: "continue"},
-  {phase: "3-implement", status: "completed", turns: 4, cost_usd: 0.2, outcome: "continue"}]'
+  {phase: "3-implement", status: "completed", turns: 4, cost_usd: 0.2, outcome: "continue"},
+  {phase: "4-review", status: "completed", turns: 6, cost_usd: 0.2, outcome: "continue"}]
+  | .review = {findings: [], fix_round_applied: false}'
 
-check "three continued phases are green" "0 green 0 " "$(verdict "$(evidence "$PHASED")")"
+check "four continued phases are green" "0 green 0 " "$(verdict "$(evidence "$PHASED")")"
 
 PHASED_BLOCK="$("$VERDICT" <<<"$(evidence "$PHASED")" | jq -r '.evidence_block')"
-check "the block has a row per phase" "3" "$(grep -cE '^\| [123]-[a-z]+ \| completed \| continue \|' <<<"$PHASED_BLOCK")"
+check "the block has a row per phase" "4" "$(grep -cE '^\| [1234]-[a-z]+ \| completed \| continue \|' <<<"$PHASED_BLOCK")"
 
 # A blocked Plan is one reason for the block, and one for the Implement that
 # never ran because of it.
-check "a blocked phase is red, and the missing phase after it too" "1 red 2 agent:needs-help" \
+check "a blocked phase is red, and the missing phases after it too" "1 red 2 agent:needs-help" \
   "$(verdict "$(evidence "$PHASED | .phases |= .[0:2] | .phases[1].outcome = \"blocked\" | .agent.status = \"blocked\"")")"
 
 BLOCKED_BLOCK="$("$VERDICT" <<<"$(evidence "$PHASED | .phases |= .[0:2] | .phases[1].outcome = \"blocked\"")" | jq -r '.evidence_block' || true)"
@@ -162,6 +164,13 @@ check "a phase with no gate file is red" "1 red 2 agent:needs-help" \
 
 check "a failed phase session is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence "$PHASED | .phases[2].status = \"failed\"")")"
+
+check "a review that recorded nothing is red" "review: no findings were recorded" \
+  "$("$VERDICT" <<<"$(evidence "$PHASED | .review = null")" 2>/dev/null | jq -r '.reasons | join(" | ")' || true)"
+# Through a variable: written inline in the nested quotes, the braces reached jq
+# expanded.
+ONE_FINDING='.review.findings = [{axis: "spec", kind: "missing", severity: "hard", summary: "x"}]'
+check "findings alone are not red" "0 green 0 " "$(verdict "$(evidence "$PHASED | $ONE_FINDING")")"
 
 # --- budgets ----------------------------------------------------------------
 BUDGET='.budget = {cost_cap_usd: 5, spent_usd: 1.2, turn_caps: {"1-research": 30, "2-plan": 15, "3-implement": 80}, exceeded: null}'
