@@ -31,4 +31,25 @@ describe("convertToNewDurationType", () => {
   it("should convert days to hours", () => {
     expect(convertToNewDurationType("days", "hours", 2)).toBe(48);
   });
+
+  it("should round up minutes to hours when not evenly divisible", () => {
+    expect(convertToNewDurationType("minutes", "hours", 90)).toBe(2);
+  });
+
+  it("should round up minutes to days when not evenly divisible", () => {
+    expect(convertToNewDurationType("minutes", "days", 1441)).toBe(2);
+  });
+
+  it("should round up hours to days when not evenly divisible", () => {
+    expect(convertToNewDurationType("hours", "days", 25)).toBe(2);
+  });
+
+  it("should return 0 for a zero value in every direction", () => {
+    const durationTypes = ["minutes", "hours", "days"] as const;
+    for (const prevType of durationTypes) {
+      for (const newType of durationTypes) {
+        expect(convertToNewDurationType(prevType, newType, 0)).toBe(0);
+      }
+    }
+  });
 });

@@ -1,6 +1,6 @@
 # Duration Type Tests Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -29,12 +29,6 @@
      - `convertToNewDurationType should convert days to hours` (2 → 48)
    - Verified by: `yarn test packages/lib/convertToNewDurationType.test.ts`
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 3. **`convertToNewDurationType` rounding and zero** — pins the `Math.ceil`
    behaviour recorded in ADR-001 and the zero case in every direction.
    - `packages/lib/convertToNewDurationType.test.ts` (extends slice 2's `describe`)
@@ -44,6 +38,14 @@
      - `convertToNewDurationType should round up hours to days when not evenly divisible` (25 → 2)
      - `convertToNewDurationType should return 0 for a zero value in every direction` (all nine pairs)
    - Verified by: `yarn test packages/lib/convertToNewDurationType.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+None — all slices complete.
 
 Size: two new test files, no non-test source files — well inside the
 `specs/README.md` review-size rule; one PR.
@@ -67,3 +69,9 @@ yarn test packages/lib/convertToNewDurationType.test.ts
   file keeps biome's formatting. Next: slice 2.
 - Slice 2 done: `convertToNewDurationType.test.ts` added with the seven
   exact-conversion tests; 7 pass and `biome check` is clean. Next: slice 3.
+- Slice 3 done: rounding and zero tests added to the same `describe`. Both
+  files pass (15 tests) and `biome check` is clean on both.
+  `yarn turbo run type-check --filter=@calcom/web` passed, but web's `tsc` only
+  reaches files web imports, so the new test files were not type-checked by it.
+  Running `tsc` directly against `packages/lib` was not permitted in this
+  session, so the test files themselves are not type-checked. All slices complete.
