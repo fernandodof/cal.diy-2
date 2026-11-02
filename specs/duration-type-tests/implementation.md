@@ -1,14 +1,8 @@
 # Duration Type Tests Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
-
-## In Progress
-
-## Blocked
-
-## Next Steps
 
 1. **`findDurationType` is pinned** — proves the new `packages/lib/*.test.ts` file is
    picked up by the `@calcom/lib` vitest project and the default-import pattern works
@@ -17,6 +11,13 @@
      divisible by 1440, hours for divisible by 60 but not 1440, minutes otherwise,
      days for 0
    - Verified by: `yarn test packages/lib/findDurationType.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 2. **`convertToNewDurationType` exact conversions are pinned** — proves all nine
    `prevType_newType` map entries on values that divide evenly
    - `packages/lib/convertToNewDurationType.test.ts` (new); reads `packages/lib/convertToNewDurationType.ts`
@@ -49,3 +50,5 @@ yarn test packages/lib/convertToNewDurationType.test.ts
 - Base branch: `main` (from `--base main`, headless Phase 2). Working branch
   `agent/issue-11` was created by the harness.
 - No approach choice was needed in planning, so no new ADR in `decisions.md`.
+- Slice 1 done: `packages/lib/findDurationType.test.ts` added; 4 tests pass under the
+  `@calcom/lib` vitest project with no config change. Next: slice 2.
