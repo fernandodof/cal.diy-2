@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: complete
+## Status: planned
 
 ## Completed
 
@@ -174,6 +174,30 @@
 
 ## Next Steps
 
+Increment: review phase with one spec fix round (#30).
+
+17. **A review runs after Implement and its findings reach the PR** — proves a
+    fourth session reviews the branch, records findings by axis and severity, and
+    a run without a review is red
+    - `.claude/skills/implement-task/headless.md` (Phase 4), `scripts/issue-to-pr.sh`
+      (review session with `Agent` added, 30-turn cap), `scripts/implement-evidence.sh`
+      (`review`, four phases make a complete run), `scripts/implement-verdict.sh`
+      (null-review rule, findings by axis in the block)
+    - Verified by: `./scripts/issue-to-pr.test.sh` — the fake Phase 4 writes
+      `review.json` and its gate; the review prompt names `origin/main`, the spec
+      and the issue; only the review session's allowlist has `Agent`; findings
+      render by axis; no `review.json` → red; a stopped earlier phase → no review —
+      and verdict fixtures
+18. **Spec findings get exactly one fix round** — proves a missing or wrong
+    requirement triggers one fix session and nothing else does
+    - `.claude/skills/implement-task/headless.md` (fix round),
+      `scripts/issue-to-pr.sh` (trigger, fix session, 40-turn cap),
+      `scripts/implement-evidence.sh` (`fix` phase, `fix_round_applied`),
+      `docs/harness/implement-evidence-schema.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh` — a `missing` spec finding →
+      exactly one fix session and no second review; `wrong` likewise; standards-only
+      and creep-only findings → none; a failed fix session → red
+
 ## Session Notes
 
 - Base branch: `main` (confirmed at the Phase 2 gate). Working branch
@@ -269,3 +293,5 @@
   turns, so a run can end slightly over its cap. The collector now also counts
   that subtype as the cost cap; documented in the schema (165 orchestrator
   checks, exit 0).
+- #30 planned on `feat/review-phase`, cut from `origin/main` after #40 merged.
+  Base branch: `main` (confirmed at the Phase 2 gate).

@@ -757,3 +757,122 @@ Five non-test files.
 ## Out of Scope
 
 - The Review phase's cap (#30). Billing outside the CLI's own `total_cost_usd`.
+
+---
+
+# Increment: review phase with one spec fix round (#30)
+
+Tracks [#30](https://github.com/fernandodof/cal.diy-2/issues/30). Builds on #31
+(merged in #40).
+
+## Overview
+
+After Implement, a fourth headless session runs `/code-review` against the base
+and writes its findings as JSON as well as prose. If any **spec** finding says a
+requirement is missing or wrong, the harness runs **one** fix session on exactly
+those findings, then never reviews again. Standards findings are reported, never
+fixed. The evidence carries every finding with its axis and severity, and whether
+the fix round ran.
+
+## Problem Statement
+
+The criteria from #29 prove the tests named for each requirement pass; nothing
+yet asks whether the diff does what the issue asked or follows the repo's
+conventions. `/code-review` (user-level skill) answers both, on separate axes.
+
+## Technical Design
+
+### Review as headless phase 4 of `/implement-task`
+
+`headless.md` gains a **Phase 4 — Review** section, so all headless rules stay in
+one file and the gate-file contract (#27) carries over unchanged:
+
+```
+/implement-task --headless --phase 4 --base <b> <issue URL> --spec specs/<slug>
+```
+
+The phase runs `/code-review` with everything it would otherwise ask for given up
+front — this repo has no `docs/agents/issue-tracker.md`, and the skill's fallback
+is to stop and ask:
+
+- fixed point: `origin/<base>`;
+- spec: `<spec>/design.md` and the issue URL (`gh issue view` is allowed);
+- standards: `CONTRIBUTING.md` plus the skill's smell baseline.
+
+It then writes, besides `gates/4-review.md` (`Outcome:` line + the two prose
+sections, committed), `.claude/headless-runs/review.json` (gitignored, like
+`pr-body.md`):
+
+```jsonc
+{ "findings": [
+  { "axis": "spec",      "kind": "missing",   "severity": "hard",      "summary": "…", "where": "file:line", "quote": "…spec line…" },
+  { "axis": "standards", "kind": "smell",     "severity": "judgement", "summary": "…", "where": "…" }
+] }
+```
+
+`kind` is the skill's own categories: spec `missing` | `creep` | `wrong`;
+standards `violation` | `smell`. `severity` is its hard-vs-judgement split
+(smells are always `judgement`).
+
+### Fix round
+
+- **Trigger:** at least one spec finding of kind `missing` or `wrong` — #30's
+  "a requirement missing or wrong". Scope creep is reported, not fixed: undoing
+  it is a judgement for the reviewer.
+- **Session:** `/implement-task --headless --phase fix …`, a new `headless.md`
+  section: read `review.json`, fix only those findings, add or update the tests
+  and criteria they touch, commit, update `pr-body.md`. No new scope.
+- **Exactly once.** No second review follows; the findings in the evidence are
+  the ones the fix round was given, rendered under "Review (before the fix
+  round)". The collector runs afterwards as always, so criteria and tests reflect
+  the fixed code.
+
+### Permissions and budget
+
+- `/code-review` spawns two sub-agents, so the **review session alone** gets
+  `Agent` added to its allowlist; every other session's list is unchanged.
+  Sub-agents run under the same deny list.
+- Caps: `HEADLESS_TASK_MAX_TURNS_REVIEW` (30, as #31 left for here) and
+  `HEADLESS_TASK_MAX_TURNS_FIX` (40); both inside the one cost cap. They join
+  `budget.turn_caps` as `4-review` and `fix`.
+
+### Evidence (`implement-evidence/1`, additive)
+
+- `phases` gains `4-review` and, when it ran, `fix` records — same shape.
+- `review`: `{findings: [...], fix_round_applied: bool}`; `null` if the review
+  did not run or left no readable `review.json`.
+
+### Verdict
+
+- Review ran (Implement completed) but `review == null` → red: "review: no findings
+  were recorded".
+- A `fix` phase that failed → red via the existing per-phase rule.
+- Findings themselves do **not** turn the verdict red: every PR is a draft a human
+  reads, and after the fix round the harness has no second opinion on whether
+  they still hold. The block lists them first under the evidence, by axis.
+- "phases: N phase(s) never ran" now counts against four, not three: the review
+  is part of a complete run. `agent.status: completed` requires the review too.
+
+### Files
+
+| File | Change |
+|---|---|
+| `.claude/skills/implement-task/headless.md` | Phase 4 (review) and fix-round sections |
+| `scripts/issue-to-pr.sh` | review session (+`Agent`), fix trigger and session, two caps |
+| `scripts/implement-evidence.sh` | `review`, phase count 4, aggregate `agent` |
+| `scripts/implement-verdict.sh` | the null-review rule, findings in the block, four-phase count |
+| `docs/harness/implement-evidence-schema.md` | `review`, the new phases and caps |
+
+Five non-test files.
+
+## Edge Cases
+
+- **Earlier phase stopped** → no review, no fix; unchanged behaviour.
+- **Review session fails or hits its cap** → no fix round; red as a failed phase.
+- **`review.json` unparseable or missing fields** → `review: null`, red.
+- **Fix session makes no commit** → `fix_round_applied: true` still (it ran),
+  and its phase record shows what it did; the collector judges the code.
+
+## Out of Scope
+
+- Re-reviewing after the fix; a second fix round; auto-fixing standards findings.
