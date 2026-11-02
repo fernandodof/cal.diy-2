@@ -94,7 +94,7 @@ question you can answer with a reasonable, stated assumption is not a blocker.
   `.agent-handoff/review.json` and fix **only** those findings — not
   scope creep, not standards findings, nothing new. Where a fix changes what a
   requirement's test checks, update the test, its acceptance criterion and the
-  `## Verification` block to match. Commit as in Phase 3, update
+  `## Verification` block to match. Verify and commit as in Phase 3, update
   `.agent-handoff/pr-body.md` to say what the fix round changed, and leave
   `review.json` as it is: it is the record of what the review found. There is no
   second review.

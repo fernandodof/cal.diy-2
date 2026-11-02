@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: complete
 
 ## Completed
 
@@ -204,12 +204,6 @@
       `.claude/headless-runs`, and `git check-ignore` matches both files.
       `./scripts/implement-verdict.test.sh` is unchanged and still passes.
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 20. **The agent's code passes the evidence's biome check before it is
     committed**. This proves Phase 3 and the fix round are told to run the
     command the evidence judges them by, and that their session is allowed to
@@ -221,6 +215,12 @@
       `headless.md` verifies as Phase 3 does, and `issue-to-pr.sh`'s allowlist
       has `Bash(yarn biome:*)`. All existing checks still pass. The real check
       is the #11 rerun after merge.
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -343,3 +343,7 @@
   merged. Base branch: `main` (confirmed at the Phase 2 gate). Both #11 smoke
   runs failed `biome check` on import order. The pre-commit hook runs
   `biome lint`, which doesn't sort imports.
+- Slice 20 done: Phase 3's Verify block now runs `yarn biome check --write` on
+  the changed files and says why the hook is not enough. The fix round verifies
+  as Phase 3 does (200 orchestrator, 43 verdict checks; both exit 0). The real
+  check is re-running #11 after merge.
