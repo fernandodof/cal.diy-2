@@ -122,6 +122,74 @@ run_check() {
   rm -f "$log"
 }
 
+# The TypeScript project a file belongs to: the nearest directory above it with a
+# tsconfig.json ("." for the root), or nothing if there is none.
+project_of() {
+  local dir
+  dir="$(dirname "$1")"
+  while :; do
+    [[ -f "$WORKTREE/$dir/tsconfig.json" ]] && { echo "$dir"; return; }
+    [[ "$dir" == . ]] && return
+    dir="$(dirname "$dir")"
+  done
+}
+
+# Type-check one project and print its record, judged on the changed files only.
+# A project's own tsc is red before any change (69 errors in packages/lib on
+# main), so its exit code says nothing about the change; the lines naming a
+# changed file do. tsc failing without naming any error did not check anything.
+type_check_project() {
+  local project="$1" files="$2" config="$1/tsconfig.json" log exit_code errors mine summary
+  [[ "$project" == . ]] && config="tsconfig.json"
+  log="$(mktemp)"
+  set +e
+  (cd "$WORKTREE" && yarn tsc --noEmit -p "$config") > "$log" 2>&1
+  exit_code=$?
+  set -e
+  errors="$(grep 'error TS' "$log" || true)"
+  mine="$(awk -F'(' 'NR == FNR { want[$0]; next } ($1 in want)' <(printf '%s\n' "$files") <(printf '%s\n' "$errors"))"
+  if [[ -n "$mine" ]]; then
+    exit_code=1
+    summary="$(tail -n "$LOG_TAIL_LINES" <<<"$mine")"
+  elif [[ -z "$errors" && $exit_code -ne 0 ]]; then
+    exit_code="null"
+    summary="$(tail -n "$LOG_TAIL_LINES" "$log")"
+  else
+    exit_code=0
+    summary="no errors in $(grep -c . <<<"$files") changed file(s); $(grep -c . <<<"$errors" || true) error(s) elsewhere in the project"
+  fi
+  jq -n \
+    --arg name "type-check: $project" \
+    --arg command "yarn tsc --noEmit -p $config" \
+    --argjson exit_code "$exit_code" \
+    --arg log_tail "$summary" \
+    '{name: $name, command: $command, source: "always", scope: "changed files", exit_code: $exit_code, log_tail: $log_tail}'
+  rm -f "$log"
+}
+
+# One record per project the change touched, plus one for changed files no
+# project covers. apps/web is left to the turbo check, which runs its tsc.
+type_check_changed() {
+  local path project pairs="" uncovered=()
+  for path in ${CHANGED_FILES[@]+"${CHANGED_FILES[@]}"}; do
+    [[ "$path" =~ \.tsx?$ ]] || continue
+    project="$(project_of "$path")"
+    if [[ -z "$project" ]]; then
+      uncovered+=("$path")
+    elif [[ "$project" != apps/web ]]; then
+      pairs+="$project"$'\t'"$path"$'\n'
+    fi
+  done
+  while IFS= read -r project; do
+    [[ -n "$project" ]] || continue
+    type_check_project "$project" "$(awk -F'\t' -v p="$project" '$1 == p { print $2 }' <<<"$pairs")"
+  done < <(printf '%s' "$pairs" | cut -f1 | sort -u)
+  if [[ ${#uncovered[@]} -gt 0 ]]; then
+    jq -n --arg log_tail "$(printf '%s\n' "${uncovered[@]}")" \
+      '{name: "type-check: not covered", command: "", source: "always", scope: "changed files", exit_code: null, log_tail: $log_tail}'
+  fi
+}
+
 # --- declared verification ---------------------------------------------------
 # Phase 2 lists the commands that verify its slices in the first fenced block
 # under `## Verification` in implementation.md. They are the agent's words, so
@@ -225,6 +293,9 @@ CHECKS="$(
     # Only @calcom/web has a type-check task, and it compiles what it imports,
     # so it is the one that covers changes in packages/lib, features and trpc.
     run_check type-check always yarn turbo run type-check --filter=@calcom/web
+    # The turbo check reaches only what web imports — not, say, a new
+    # packages/lib test — so each project the change touched is checked as well.
+    type_check_changed
     # Biome exits 0 having checked nothing when no changed file is one it reads,
     # so pass it only files it reads; with none, the check did not run.
     BIOME_FILES=()

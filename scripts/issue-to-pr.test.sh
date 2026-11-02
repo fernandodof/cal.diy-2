@@ -32,6 +32,10 @@ sandbox() {
   git init --quiet --initial-branch=main "$sb/repo"
   mkdir -p "$sb/repo/scripts" "$sb/bin" "$sb/log"
   cp "$REPO_ROOT"/scripts/{issue-to-pr,headless-task,implement-evidence,implement-verdict}.sh "$sb/repo/scripts/"
+  # TypeScript projects for the per-project type-check: the root (where the fake
+  # agent writes by default), a package, and the app the turbo check covers.
+  mkdir -p "$sb/repo/packages/lib" "$sb/repo/apps/web"
+  echo '{}' | tee "$sb/repo/tsconfig.json" "$sb/repo/packages/lib/tsconfig.json" "$sb/repo/apps/web/tsconfig.json" >/dev/null
   (
     cd "$sb/repo"
     git config user.email test@example.test
@@ -106,6 +110,11 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
         echo "export const x = 1;" > thing.ts
         echo "it('x', () => {});" > thing.test.ts
       fi
+      if [[ "$mode" == lib ]]; then
+        echo "export const a = 1;" > packages/lib/a.ts
+        echo "it('a', () => {});" > packages/lib/a.test.ts
+      fi
+      [[ "$mode" == web ]] && echo "export const p = 1;" > apps/web/page.ts
       gate 3-implement
       mkdir -p .agent-handoff
       printf '## What changed\n\nThe agent draft.\n' > .agent-handoff/pr-body.md ;;
@@ -149,6 +158,13 @@ FAKE
 echo "$* cwd=$PWD cache=${YARN_CACHE_FOLDER:-}" >> "$FAKE_LOG/yarn.log"
 [[ -n "${FAKE_YARN_FAIL:-}" && "$*" == *"$FAKE_YARN_FAIL"* ]] && { echo "boom"; exit 1; }
 [[ -n "${FAKE_YARN_NO_TESTS:-}" && "$1" == test ]] && { echo "No test files found, exiting with code 0"; exit 0; }
+# yarn tsc: prints FAKE_TSC_OUTPUT (with \n escapes) and exits non-zero if it
+# names an error, or with FAKE_TSC_EXIT.
+if [[ "$1" == tsc ]]; then
+  printf '%b' "${FAKE_TSC_OUTPUT:-}"
+  [[ "${FAKE_TSC_OUTPUT:-}" == *"error TS"* ]] && exit "${FAKE_TSC_EXIT:-2}"
+  exit "${FAKE_TSC_EXIT:-0}"
+fi
 # yarn test: write the JSON report the collector asks for, one test per file,
 # named and graded by FAKE_TEST_NAME / FAKE_TEST_STATUS.
 if [[ "$1" == test ]]; then
@@ -256,7 +272,7 @@ check "the worktree got its own install from this checkout's cache" "1" \
 check "the install ran before the agent" "install" "$(head -1 "$SB/log/yarn.log" | cut -d' ' -f1)"
 check "type-check was re-run by the harness in the worktree" "1" \
   "$(grep -c "^turbo run type-check --filter=@calcom/web cwd=$SB/worktrees/issue-7 " "$SB/log/yarn.log")"
-check "the evidence carries the always-on and the declared checks" "type-check:always,biome:always,test: thing.test.ts:declared" \
+check "the evidence carries the always-on and the declared checks" "type-check:always,type-check: .:always,biome:always,test: thing.test.ts:declared" \
   "$(jq -r '[.checks[] | "\(.name):\(.source)"] | join(",")' "$SB/runs/issue-7/evidence.json")"
 check "the harness ran the declared test in the worktree" "1" \
   "$(grep -c "^test thing.test.ts --reporter.* cwd=$SB/worktrees/issue-7 " "$SB/log/yarn.log")"
@@ -509,6 +525,50 @@ SB="$(sandbox)"
 check "a clarified issue proceeds" "0" "$(run "$SB" FAKE_ISSUE_LABELS="agent:needs-clarification bug")"
 check "  and sheds its needs-clarification label" "1" \
   "$(grep -c '^issue edit 7 --remove-label agent:needs-clarification$' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+# --- type-check of the changed files ---------------------------------------
+
+# A project's tsc is red on main already (69 errors in packages/lib), so only the
+# lines naming a changed file count.
+tc() { jq -r --arg n "$2" '.checks[] | select(.name == $n) | .'"$3" "$1/runs/issue-7/evidence.json"; }
+
+SB="$(sandbox)"
+check "an error in a changed file exits 1" "1" "$(run "$SB" FAKE_CLAUDE=lib \
+  FAKE_TSC_OUTPUT='packages/lib/a.test.ts(1,7): error TS2322: Type string is not number.\npackages/lib/old.ts(3,1): error TS2304: Cannot find name x.\n')"
+check "  the project's check exited 1" "1" "$(tc "$SB" "type-check: packages/lib" exit_code)"
+check "  it is scoped to the changed files" "changed files" "$(tc "$SB" "type-check: packages/lib" scope)"
+check "  its log keeps the changed file's error only" "packages/lib/a.test.ts(1,7): error TS2322: Type string is not number." \
+  "$(tc "$SB" "type-check: packages/lib" log_tail)"
+check "  the body names it" "1" "$(grep -c '^- check: type-check: packages/lib exited 1$' "$SB/runs/issue-7/pr-body.md")"
+check "  both changed lib files went to one tsc run" "1" "$(grep -c '^tsc --noEmit -p packages/lib/tsconfig.json ' "$SB/log/yarn.log")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "errors only in unchanged files exit 0" "0" "$(run "$SB" FAKE_CLAUDE=lib \
+  FAKE_TSC_OUTPUT='packages/lib/old.ts(3,1): error TS2304: Cannot find name x.\npackages/dayjs/p.ts(1,1): error TS2339: No.\n')"
+check "  the project's check passed" "0" "$(tc "$SB" "type-check: packages/lib" exit_code)"
+check "  its log counts the errors elsewhere" "no errors in 2 changed file(s); 2 error(s) elsewhere in the project" \
+  "$(tc "$SB" "type-check: packages/lib" log_tail)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a changed apps/web file is left to the web check" "0" "$(run "$SB" FAKE_CLAUDE=web)"
+check "  no tsc run for apps/web" "0" "$(grep -c '^tsc .*apps/web' "$SB/log/yarn.log" || true)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "tsc failing with no error lines exits 1" "1" "$(run "$SB" FAKE_TSC_OUTPUT='Cannot read file tsconfig.json.\n' FAKE_TSC_EXIT=1)"
+check "  the check is recorded as not run" "null" "$(tc "$SB" "type-check: ." exit_code)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+git -C "$SB/repo" rm --quiet tsconfig.json
+git -C "$SB/repo" commit --quiet -m "no root project"
+git -C "$SB/repo" push --quiet origin main
+check "a changed .ts file in no project exits 1" "1" "$(run "$SB")"
+check "  it is listed as not covered" "null" "$(tc "$SB" "type-check: not covered" exit_code)"
+check "  with the file named" "thing.test.ts thing.ts" "$(tc "$SB" "type-check: not covered" log_tail | tr '\n' ' ' | sed 's/ $//')"
 rm -rf "$SB"
 
 # --- red path ---------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
 
@@ -216,12 +216,6 @@
       has `Bash(yarn biome:*)`. All existing checks still pass. The real check
       is the #11 rerun after merge.
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 21. **A type error in a changed file that web doesn't import turns the verdict
     red**. This proves the collector type-checks each touched project and judges
     only the changed files: a clean file is green even though the project has
@@ -235,6 +229,12 @@
       in one project → one `tsc` run; a changed `apps/web` file → no extra run;
       a `.ts` file with no project → `type-check: not covered`, red; a `tsc` that
       exits non-zero with no error lines → not run.
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 22. **The agent can type-check what it changed**. This proves the rules tell
     Phase 3 to run the same `tsc` command and that the session allows it.
@@ -383,3 +383,8 @@
 - #43 planned on `fix/type-check-changed-files`, cut from `origin/main` after
   #55 merged. Base branch: `main` (confirmed at the Phase 2 gate). One PR, three
   slices. Review-size check: 5 non-test files.
+- Slice 21 done: the collector runs `yarn tsc --noEmit -p <project>/tsconfig.json`
+  once for each project a changed `.ts`/`.tsx` file belongs to, and judges only
+  the changed files' error lines. `apps/web` is left to the turbo check, and files
+  with no project are "not covered" (216 orchestrator checks, exit 0; verdict
+  suite unchanged, exit 0). Next: slice 22, letting the agent run the same check.

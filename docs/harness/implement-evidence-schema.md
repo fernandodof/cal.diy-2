@@ -73,6 +73,14 @@ copied from what the agent said about its own work. Facts it cannot reach are
       "log_tail": "…"
     },
     {
+      "name": "type-check: packages/lib",  // one per project the change touched
+      "command": "yarn tsc --noEmit -p packages/lib/tsconfig.json",
+      "source": "always",
+      "scope": "changed files",          // judged on the changed files' errors only
+      "exit_code": 0,
+      "log_tail": "no errors in 2 changed file(s); 69 error(s) elsewhere in the project"
+    },
+    {
       "name": "biome",
       "command": "yarn biome check …",
       "source": "always",                // run on every branch, whatever the plan says
@@ -112,6 +120,17 @@ copied from what the agent said about its own work. Facts it cannot reach are
 biome when no changed file is one biome reads, for instance, where biome itself
 would exit 0 having checked nothing. That is recorded rather than omitted so the
 gap is visible in the verdict.
+
+**`type-check: <project>`** checks are added for each TypeScript project a
+changed `.ts`/`.tsx` file belongs to — the nearest directory above it with a
+`tsconfig.json` — because the `@calcom/web` check reaches only what web imports.
+A project's `tsc` is red before any change (69 errors in `packages/lib` on
+`main`), so these carry `scope: "changed files"` and their `exit_code` is the
+harness's reading, not `tsc`'s: `1` if a line names a changed file (those lines
+are the `log_tail`), `0` if none does, `null` if `tsc` failed without naming any
+error. `apps/web` files are left to the `@calcom/web` check. Changed files with no
+project are listed in one `type-check: not covered` check with a `null`
+`exit_code`.
 
 **`declared_commands`** come from the first fenced block under `## Verification`
 in `<spec>/implementation.md`, which Phase 2 writes. One shape is accepted:
