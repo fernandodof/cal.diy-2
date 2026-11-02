@@ -60,7 +60,7 @@ question you can answer with a reasonable, stated assumption is not a blocker.
   file says, and set `## Status: complete` (or `blocked`) as usual. Then, instead
   of pushing and opening the PR:
   - write the PR body, from the template in `phases/3-implement.md`, to
-    `.claude/headless-runs/pr-body.md` at the repository root. That path is
+    `.agent-handoff/pr-body.md` at the repository root. That path is
     gitignored; do not commit it.
   - do not run `git push` or `gh pr create`. The harness pushes, re-runs the
     checks itself, and opens the PR with your body followed by its evidence.
@@ -74,7 +74,7 @@ question you can answer with a reasonable, stated assumption is not a blocker.
   - the standards source is `CONTRIBUTING.md`, plus the skill's smell baseline.
 
   Change no code. Besides the gate file, write the findings to
-  `.claude/headless-runs/review.json` at the repository root (gitignored; do not
+  `.agent-handoff/review.json` at the repository root (gitignored; do not
   commit it), one entry per finding, keeping the skill's own categories:
 
   ```json
@@ -91,11 +91,11 @@ question you can answer with a reasonable, stated assumption is not a blocker.
 
 - **The fix round** (`--phase fix`, gate file `gates/fix.md`) runs once, only
   when the review reported a spec finding of kind `missing` or `wrong`. Read
-  `.claude/headless-runs/review.json` and fix **only** those findings — not
+  `.agent-handoff/review.json` and fix **only** those findings — not
   scope creep, not standards findings, nothing new. Where a fix changes what a
   requirement's test checks, update the test, its acceptance criterion and the
   `## Verification` block to match. Commit as in Phase 3, update
-  `.claude/headless-runs/pr-body.md` to say what the fix round changed, and leave
+  `.agent-handoff/pr-body.md` to say what the fix round changed, and leave
   `review.json` as it is: it is the record of what the review found. There is no
   second review.
 

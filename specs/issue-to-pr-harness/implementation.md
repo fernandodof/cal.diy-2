@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: complete
 
 ## Completed
 
@@ -191,12 +191,6 @@
       exactly one fix session and no second review; `wrong` likewise; standards-only
       and creep-only findings → none; a failed fix session → red
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 19. **The agent's handoff files reach the harness from a path it can write** —
     proves Phase 3's `pr-body.md` and Phase 4's `review.json` go to and are read
     from `.agent-handoff/`, gitignored, and nothing still names the old path
@@ -209,6 +203,12 @@
       `.agent-handoff/pr-body.md` and `.agent-handoff/review.json` and never
       `.claude/headless-runs`, and `git check-ignore` matches both files.
       `./scripts/implement-verdict.test.sh` is unchanged and still passes.
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -323,3 +323,7 @@
   #33 smoke run (PR #42). Two real-session probes showed that a headless `Write`
   under `.claude/` is denied as a sensitive file, even with an explicit allow
   rule, while `.agent-handoff/` works.
+- Slice 19 done: `pr-body.md` and `review.json` move to `.agent-handoff/`, which
+  is gitignored, in the rules, the orchestrator, the collector and the schema
+  doc. ADR-002 records why an allow rule was not enough (197 orchestrator, 43
+  verdict checks; both exit 0). The real check is re-running #11 after merge.

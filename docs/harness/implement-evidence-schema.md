@@ -153,7 +153,7 @@ is `error_max_turns`.
 **`plan_status`** is read as a fact; the harness also stops the sequence on
 `blocked`, whatever the gate file's `Outcome` says.
 
-**`review`** comes from `.claude/headless-runs/review.json`, which Phase 4 —
+**`review`** comes from `.agent-handoff/review.json`, which Phase 4 —
 `/code-review` on the branch — writes beside its committed gate file. A spec
 finding of kind `missing` or `wrong` triggers exactly one `fix` session on those
 findings; nothing triggers a second, and the review is not run again, so the

@@ -207,7 +207,7 @@ fi
 # The review's findings, as Phase 4 wrote them for the harness. Read only if the
 # review ran; an unreadable file is the same as none.
 REVIEW="null"
-REVIEW_FILE="$WORKTREE/.claude/headless-runs/review.json"
+REVIEW_FILE="$WORKTREE/.agent-handoff/review.json"
 if jq -e 'any(.[]?; .phase == "4-review")' <<<"$PHASES" >/dev/null 2>&1 \
   && jq -e '.findings | type == "array"' "$REVIEW_FILE" >/dev/null 2>&1; then
   REVIEW="$(jq -c --argjson phases "$PHASES" '{findings: [.findings[] | {axis, kind, severity, summary, where, quote}],
