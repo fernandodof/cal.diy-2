@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: complete
+## Status: planned
 
 ## Completed
 
@@ -222,6 +222,39 @@
 
 ## Next Steps
 
+21. **A type error in a changed file that web doesn't import turns the verdict
+    red**. This proves the collector type-checks each touched project and judges
+    only the changed files: a clean file is green even though the project has
+    other errors, an error in the file is red, and a file with no project is
+    "not covered".
+    - `scripts/implement-evidence.sh`, `docs/harness/implement-evidence-schema.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. The fake `yarn tsc` prints
+      error lines. Checks: one error in a changed file → `type-check:
+      packages/lib` exited 1 and the PR is red with that line; errors only in
+      other files → exit 0, green, with the "elsewhere" count; two changed files
+      in one project → one `tsc` run; a changed `apps/web` file → no extra run;
+      a `.ts` file with no project → `type-check: not covered`, red; a `tsc` that
+      exits non-zero with no error lines → not run.
+
+22. **The agent can type-check what it changed**. This proves the rules tell
+    Phase 3 to run the same `tsc` command and that the session allows it.
+    - `scripts/issue-to-pr.sh` (allowlist),
+      `.claude/skills/implement-task/phases/3-implement.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. Phase 3's rules name
+      `yarn tsc --noEmit -p`; the allowlist has `Bash(yarn tsc --noEmit -p:*)`;
+      the rules no longer say web covers `packages/lib`.
+
+23. **The evidence reads cleanly** (#45). Costs show to the cent, commands show
+    no temp paths, the run directory holds only the current run's files, and the
+    no-draft fallback names the gate file.
+    - `scripts/implement-verdict.sh`, `scripts/implement-evidence.sh`,
+      `scripts/issue-to-pr.sh`
+    - Verified by: `./scripts/implement-verdict.test.sh` (a fixture with costs
+      like `0.27312559999999997` renders as `$0.27`) and
+      `./scripts/issue-to-pr.test.sh` (no `/tmp`/`/var` paths in the body; a
+      stale file in the run directory is gone after a run; the fallback names
+      `gates/3-implement.md`).
+
 ## Session Notes
 
 - Base branch: `main` (confirmed at the Phase 2 gate). Working branch
@@ -347,3 +380,6 @@
   the changed files and says why the hook is not enough. The fix round verifies
   as Phase 3 does (200 orchestrator, 43 verdict checks; both exit 0). The real
   check is re-running #11 after merge.
+- #43 planned on `fix/type-check-changed-files`, cut from `origin/main` after
+  #55 merged. Base branch: `main` (confirmed at the Phase 2 gate). One PR, three
+  slices. Review-size check: 5 non-test files.
