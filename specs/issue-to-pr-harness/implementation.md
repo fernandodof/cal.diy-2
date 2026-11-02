@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
 
@@ -168,14 +168,6 @@
       Plan → no Implement, the reason names the cap; a plan at `## Status:
       blocked` with `Outcome: continue` → stops; verdict fixtures for each rule
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-Increment: review phase with one spec fix round (#30).
-
 17. **A review runs after Implement and its findings reach the PR** — proves a
     fourth session reviews the branch, records findings by axis and severity, and
     a run without a review is red
@@ -188,6 +180,15 @@ Increment: review phase with one spec fix round (#30).
       and the issue; only the review session's allowlist has `Agent`; findings
       render by axis; no `review.json` → red; a stopped earlier phase → no review —
       and verdict fixtures
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+Increment: review phase with one spec fix round (#30).
+
 18. **Spec findings get exactly one fix round** — proves a missing or wrong
     requirement triggers one fix session and nothing else does
     - `.claude/skills/implement-task/headless.md` (fix round),
@@ -295,3 +296,8 @@ Increment: review phase with one spec fix round (#30).
   checks, exit 0).
 - #30 planned on `feat/review-phase`, cut from `origin/main` after #40 merged.
   Base branch: `main` (confirmed at the Phase 2 gate).
+- Slice 17 done: a fourth session reviews the branch with `/code-review`, told
+  the base, spec and issue up front; only its allowlist has `Agent`; findings
+  reach the evidence and the body by axis; a review that recorded nothing is red
+  (43 verdict, 175 orchestrator checks; both exit 0). A complete run is now four
+  phases and four commits. Next: slice 18, the fix round.

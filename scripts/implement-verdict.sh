@@ -73,9 +73,13 @@ POLICY='
        | "budget: \($p) hit its \(.budget.turn_caps[$p])-turn cap"
      else empty end),
     (if .plan_status == "blocked" then "plan: implementation.md says blocked — see its `## Blocked`" else empty end),
-    (if .phases != null and (.phases | length) < 3
-     then "phases: stopped after \(.phases[-1].phase); \(3 - (.phases | length)) phase(s) never ran"
+    (if .phases != null and (.phases | length) < 4
+     then "phases: stopped after \(.phases[-1].phase); \(4 - (.phases | length)) phase(s) never ran"
      else empty end),
+    # Findings are for the human reading the draft; a review that left none is
+    # a gap in the evidence.
+    (if any((.phases // [])[]; .phase == "4-review") and .review == null
+     then "review: no findings were recorded" else empty end),
     (if (.commits // 0) == 0 then "commits: the branch has no commits beyond the base" else empty end),
     (if ((.checks // []) | length) == 0 then "checks: none were run" else empty end),
     (if .declared_commands == null then "verification: Phase 2 declared no commands" else empty end),
@@ -133,6 +137,17 @@ RENDER='
             + " | \(.test_status // (if .test_file == null then "untagged" elif .declared | not then "not declared" else "not found" end)) |")
           | join("\n"))
         + "\n"
+      else empty end),
+      (if $ev.review then
+        "### Review\(if $ev.review.fix_round_applied then " (before the fix round)" else "" end)\n\n"
+        + (if ($ev.review.findings | length) == 0 then "No findings.\n"
+           else (["spec", "standards"] | map(. as $axis
+                  | ($ev.review.findings | map(select(.axis == $axis))) as $f
+                  | if ($f | length) == 0 then empty
+                    else "**\(if $axis == "spec" then "Spec" else "Standards" end)**\n\n"
+                         + ($f | map("- \(.kind), \(.severity): \(.summary)\(if .where then " (\(.where | code))" else "" end)") | join("\n"))
+                         + "\n" end) | join("\n"))
+           end)
       else empty end),
       "### Checks",
       "",

@@ -4,7 +4,7 @@ How `/implement-task` runs when nobody is there to answer a gate — under
 `scripts/issue-to-pr.sh`, which starts one session per phase:
 
 ```
-/implement-task --headless --phase <1|2|3> --base <branch> <issue URL> [--spec specs/<slug>]
+/implement-task --headless --phase <1|2|3|4> --base <branch> <issue URL> [--spec specs/<slug>]
 ```
 
 Run the named phase exactly as its phase file says, with the changes below, and
@@ -28,6 +28,7 @@ or `Outcome: blocked`. Below it, what the gate would have shown the user:
 | 1 Research | the design's Overview, the file list, and every open question **with the assumption you made in place of an answer** |
 | 2 Plan | the numbered slices and the base branch |
 | 3 Implement | `git diff <base> --stat` |
+| 4 Review | the `## Standards` and `## Spec` reports `/code-review` produced, verbatim |
 
 **Blocked** is for the cases where the phase file says to stop and surface
 something to the user — a task that contradicts a constraint you found, a slice
@@ -62,6 +63,30 @@ question you can answer with a reasonable, stated assumption is not a blocker.
     gitignored; do not commit it.
   - do not run `git push` or `gh pr create`. The harness pushes, re-runs the
     checks itself, and opens the PR with your body followed by its evidence.
+
+- **Phase 4 — Review** has no phase file: run the `/code-review` skill on the
+  branch, with everything it would otherwise ask for given up front, so it never
+  stops to ask:
+  - the fixed point is `origin/<base>`;
+  - the spec is `<spec>/design.md` together with the issue URL (read it with
+    `gh issue view`) — there is no `docs/agents/issue-tracker.md` to consult;
+  - the standards source is `CONTRIBUTING.md`, plus the skill's smell baseline.
+
+  Change no code. Besides the gate file, write the findings to
+  `.claude/headless-runs/review.json` at the repository root (gitignored; do not
+  commit it), one entry per finding, keeping the skill's own categories:
+
+  ```json
+  { "findings": [
+    { "axis": "spec", "kind": "missing", "severity": "hard",
+      "summary": "…", "where": "path:line", "quote": "the spec line" }
+  ] }
+  ```
+
+  `axis` is `spec` or `standards`. `kind` is `missing`, `creep` or `wrong` for
+  spec, `violation` or `smell` for standards. `severity` is `hard` or
+  `judgement` — smells are always `judgement`. An empty `findings` array is a
+  valid review; a missing file is not.
 
 Report check results honestly in the PR body as always: the harness's evidence
 sits beside it, and a body that disagrees with it is the first thing a reviewer

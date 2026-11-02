@@ -109,6 +109,12 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
       gate 3-implement
       mkdir -p .claude/headless-runs
       printf '## What changed\n\nThe agent draft.\n' > .claude/headless-runs/pr-body.md ;;
+    4)
+      # FAKE_REVIEW is the findings JSON; "none" writes no file at all.
+      gate 4-review
+      mkdir -p .claude/headless-runs
+      no_findings='{"findings": []}'
+      [[ "${FAKE_REVIEW:-}" == none ]] || echo "${FAKE_REVIEW:-$no_findings}" > .claude/headless-runs/review.json ;;
   esac
   # Everything but the PR body draft, which headless.md says is never committed.
   git add -A -- . ':!.claude'
@@ -184,11 +190,11 @@ SB="$(sandbox)"
 check "a clean run exits 0" "0" "$(run "$SB")"
 check "it prints the PR URL" "https://example.test/pull/99" "$(cat "$SB/log/stdout")"
 check "the agent ran inside the worktree" "$SB/worktrees/issue-7" "$(cat "$SB/log/claude.cwd")"
-check "three phase sessions ran in order" "1 2 3" \
+check "four phase sessions ran in order" "1 2 3 4" \
   "$(sed -n 's/.*--headless --phase \([0-9]\).*/\1/p' "$SB/log/claude.calls" | xargs)"
 check "phase 1 is given the issue, not a spec" "no" \
   "$(head -1 "$SB/log/claude.calls" | grep -q -- --spec && echo yes || echo no)"
-check "phases 2 and 3 are given the spec Phase 1 added" "2" \
+check "phases 2 to 4 are given the spec Phase 1 added" "3" \
   "$(grep -c -- '--base main https://example.test/issues/7 --spec specs/thing$' "$SB/log/claude.calls")"
 # The prompt is a request; the permission flags are the enforcement.
 flag_value() { grep -A1 -xF -- "$1" "$SB/log/claude.args" | tail -1; }
@@ -211,11 +217,11 @@ check "the body carries the evidence markers" "2" \
 check "the body reports a green verdict" "1" "$(grep -c '^\*\*Verdict: green\*\*$' "$BODY")"
 check "biome was re-run by the harness on the changed file" "1" \
   "$(grep -c '^biome check .*thing.ts cwd='"$SB/worktrees/issue-7" "$SB/log/yarn.log")"
-check "the evidence records one commit per phase" "3" "$(jq '.commits' "$SB/runs/issue-7/evidence.json")"
-check "the evidence records the spec and the three phases" "specs/thing 3" \
+check "the evidence records one commit per phase" "4" "$(jq '.commits' "$SB/runs/issue-7/evidence.json")"
+check "the evidence records the spec and the four phases" "specs/thing 4" \
   "$(jq -r '"\(.spec) \(.phases | length)"' "$SB/runs/issue-7/evidence.json")"
 check "the body opens with the agent's draft" "1" "$(grep -c '^The agent draft\.$' "$BODY")"
-check "the body links every gate file" "3" "$(grep -c '^- `specs/thing/gates/.*` — Outcome: continue$' "$BODY")"
+check "the body links every gate file" "4" "$(grep -c '^- `specs/thing/gates/.*` — Outcome: continue$' "$BODY")"
 check "the draft comes before the evidence" "yes" \
   "$([[ $(grep -n 'The agent draft' "$BODY" | cut -d: -f1) -lt $(grep -n 'evidence:start' "$BODY" | cut -d: -f1) ]] && echo yes || echo no)"
 check "the worktree got its own install from this checkout's cache" "1" \
@@ -240,6 +246,42 @@ check "all three labels are created on first use" "3" "$(grep -c '^label create 
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
 rm -rf "$SB"
 
+# --- review -----------------------------------------------------------------
+# The allowlist each phase session was started with, one line per call.
+# Rules contain spaces (`Bash(yarn test:*)`), so cut at the next flag, not a space.
+allowlist_of_call() { sed -n "${1}p" "$SB/log/claude.argv" | sed -E 's/.*--allowedTools (.*) --disallowedTools .*/\1/'; }
+SB="$(sandbox)"
+run "$SB" >/dev/null
+check "the review is told the base, the spec and the issue up front" "1" \
+  "$(grep -c -- '^/implement-task --headless --phase 4 --base main https://example.test/issues/7 --spec specs/thing$' "$SB/log/claude.calls")"
+check "only the review session may start sub-agents" "no no no yes" \
+  "$(for i in 1 2 3 4; do allowlist_of_call $i | tr ',' '\n' | grep -qxF Agent && echo yes || echo no; done | xargs)"
+check "a review with no findings is recorded as such" '{"findings":[],"fix_round_applied":false}' \
+  "$(jq -c '.review' "$SB/runs/issue-7/evidence.json")"
+check "  and says so in the body" "1" "$(grep -c '^No findings\.$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+FINDINGS='{"findings": [
+  {"axis": "standards", "kind": "smell", "severity": "judgement", "summary": "Possible Feature Envy", "where": "thing.ts:1"},
+  {"axis": "spec", "kind": "creep", "severity": "hard", "summary": "Adds a flag nobody asked for"}]}'
+SB="$(sandbox)"
+check "findings alone do not make a run red" "0" "$(run "$SB" FAKE_REVIEW="$FINDINGS")"
+check "  each finding reaches the evidence with its axis and severity" "standards:smell:judgement spec:creep:hard" \
+  "$(jq -r '[.review.findings[] | "\(.axis):\(.kind):\(.severity)"] | join(" ")' "$SB/runs/issue-7/evidence.json")"
+check "  and the body, by axis" "1 1" \
+  "$(grep -c '^- smell, judgement: Possible Feature Envy (`thing.ts:1`)$' "$SB/runs/issue-7/pr-body.md") $(grep -c '^- creep, hard: Adds a flag nobody asked for$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a review that recorded nothing exits 1" "1" "$(run "$SB" FAKE_REVIEW=none)"
+check "  the body says so" "1" "$(grep -c '^- review: no findings were recorded$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" FAKE_FAIL_PHASE=3 >/dev/null
+check "no review runs after a failed Implement" "0" "$(grep -c -- '--phase 4' "$SB/log/claude.calls" || true)"
+rm -rf "$SB"
+
 # --- budgets ----------------------------------------------------------------
 # "<turn cap> <budget>" for each phase session, in order.
 caps_per_call() {
@@ -247,18 +289,18 @@ caps_per_call() {
 }
 SB="$(sandbox)"
 run "$SB" >/dev/null
-check "each phase gets its own turn cap and only what is left of \$5" "30:5 15:4.9 80:4.8" "$(caps_per_call)"
-check "the evidence records the caps and what was spent" "5 0.3 30,15,80" \
+check "each phase gets its own turn cap and only what is left of \$5" "30:5 15:4.9 80:4.8 30:4.7" "$(caps_per_call)"
+check "the evidence records the caps and what was spent" "5 0.4 30,15,80,30" \
   "$(jq -r '.budget | "\(.cost_cap_usd) \(.spent_usd * 10 | round / 10) \(.turn_caps | [.[]] | join(","))"' "$SB/runs/issue-7/evidence.json")"
-check "and each phase's subtype" "success,success,success" \
+check "and each phase's subtype" "success,success,success,success" \
   "$(jq -r '[.phases[].subtype] | join(",")' "$SB/runs/issue-7/evidence.json")"
-check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.3 of \$5; turn caps 1-research 30, 2-plan 15, 3-implement 80 |$' "$SB/runs/issue-7/pr-body.md")"
+check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.4 of \$5; turn caps 1-research 30, 2-plan 15, 3-implement 80, 4-review 30 |$' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 SB="$(sandbox)"
 run "$SB" HEADLESS_TASK_MAX_COST_USD=2 HEADLESS_TASK_MAX_TURNS_RESEARCH=10 \
-  HEADLESS_TASK_MAX_TURNS_PLAN=5 HEADLESS_TASK_MAX_TURNS_IMPLEMENT=20 >/dev/null
-check "every cap can be overridden" "10:2 5:1.9 20:1.8" "$(caps_per_call)"
+  HEADLESS_TASK_MAX_TURNS_PLAN=5 HEADLESS_TASK_MAX_TURNS_IMPLEMENT=20 HEADLESS_TASK_MAX_TURNS_REVIEW=7 >/dev/null
+check "every cap can be overridden" "10:2 5:1.9 20:1.8 7:1.7" "$(caps_per_call)"
 rm -rf "$SB"
 
 SB="$(sandbox)"
@@ -309,17 +351,17 @@ base_uses() {
 
 SB="$(sandbox)"
 run "$SB" >/dev/null
-check "with no override everything uses main" "no 3 main main" "$(base_uses main)"
+check "with no override everything uses main" "no 4 main main" "$(base_uses main)"
 rm -rf "$SB"
 
 SB="$(sandbox)"
 check "a base: label runs green" "0" "$(run "$SB" FAKE_ISSUE_LABELS="base:release")"
-check "  and moves every use to that branch" "yes 3 release release" "$(base_uses release)"
+check "  and moves every use to that branch" "yes 4 release release" "$(base_uses release)"
 rm -rf "$SB"
 
 SB="$(sandbox)"
 check "a Base: line in the body runs green" "0" "$(run "$SB" FAKE_ISSUE_BODY=$'Add a test.\n\nBase: `release`\n')"
-check "  and moves every use to that branch" "yes 3 release release" "$(base_uses release)"
+check "  and moves every use to that branch" "yes 4 release release" "$(base_uses release)"
 rm -rf "$SB"
 
 SB="$(sandbox)"
