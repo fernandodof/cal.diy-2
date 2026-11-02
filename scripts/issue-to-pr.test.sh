@@ -62,6 +62,8 @@ case "$1 $2" in
         url: "https://example.test/issues/7", author: {login: $author},
         labels: ($labels | split(" ") | map(select(. != "") | {name: .}))}' ;;
   "repo view") [[ "$*" == *nameWithOwner* ]] && echo "fernandodof/cal.diy-2" || echo "fernandodof" ;;
+  # The issue's last editor; FAKE_ISSUE_EDITOR empty means never edited.
+  "api graphql") [[ -n "${FAKE_GH_GRAPHQL_FAIL:-}" ]] && exit 1; echo "${FAKE_ISSUE_EDITOR:-}" ;;
   "issue comment"|"issue edit") ;;
   "pr create") echo "https://example.test/pull/99" ;;
   "label list") { printf '%s\n' ${FAKE_EXISTING_LABELS:-}; cat "$FAKE_LOG/labels" 2>/dev/null || true; } ;;
@@ -257,8 +259,14 @@ check "phases 2 to 4 are given the spec Phase 1 added" "3" \
 flag_value() { grep -A1 -xF -- "$1" "$SB/log/claude.args" | tail -1; }
 check "pushing is denied to the agent" "yes" \
   "$(flag_value --disallowedTools | tr ',' '\n' | grep -qxF 'Bash(git push:*)' && echo yes || echo no)"
-check "every gh pr command is denied to the agent" "yes" \
-  "$(flag_value --disallowedTools | tr ',' '\n' | grep -qxF 'Bash(gh pr:*)' && echo yes || echo no)"
+check "every gh command is denied to the agent" "yes" \
+  "$(flag_value --disallowedTools | tr ',' '\n' | grep -qxF 'Bash(gh:*)' && echo yes || echo no)"
+# Only the issue the trust gate approved reaches the agent: gh would also read
+# comments, other issues and other repos.
+check "  and none is allowed" "0" "$(flag_value --allowedTools | tr ',' '\n' | grep -c '^Bash(gh' || true)"
+check "the review is given the approved issue text" "2" \
+  "$(grep -cxE '# Issue #7: test\(lib\): cover a thing|Add a test\.' "$SB/log/claude.stdin")"
+check "  in the review's own prompt" "yes" "$(grep -q -- '--phase 4 ' "$SB/log/claude.stdin" && echo yes || echo no)"
 check "the agent may run the tests #11 was denied" "yes" \
   "$(flag_value --allowedTools | tr ',' '\n' | grep -qxF 'Bash(yarn test:*)' && echo yes || echo no)"
 check "nothing that pushes or opens a PR is allowed" "0" \
@@ -486,6 +494,29 @@ check "a missing base says so, with no fallback" "1" "$(grep -c "base 'nope' doe
 rm -rf "$SB"
 
 # --- trust gate -------------------------------------------------------------
+check "no headless rule tells the agent to use gh" "0" \
+  "$(grep -c 'gh issue view' "$REPO_ROOT/.claude/skills/implement-task/headless.md" || true)"
+
+SB="$(sandbox)"
+check "an issue last edited by someone else is refused" "3" "$(run "$SB" FAKE_ISSUE_EDITOR=a-stranger)"
+check "  the refusal names the editor" "1" "$(grep -c "last edited by 'a-stranger'" "$SB/log/stderr")"
+check "  no agent ran" "no" "$([[ -f "$SB/log/claude.calls" ]] && echo yes || echo no)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "--trust lets an edited issue through" "0" "$(RUN_ARGS=--trust run "$SB" FAKE_ISSUE_EDITOR=a-stranger)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "an issue the owner edited runs" "0" "$(run "$SB" FAKE_ISSUE_EDITOR=fernandodof)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a failed editor lookup stops before anything is created" "2" "$(run "$SB" FAKE_GH_GRAPHQL_FAIL=1)"
+check "  no branch was created" "no" \
+  "$(git -C "$SB/repo" rev-parse --verify --quiet refs/heads/agent/issue-7 >/dev/null && echo yes || echo no)"
+rm -rf "$SB"
+
 SB="$(sandbox)"
 check "an issue by someone else is refused" "3" "$(run "$SB" FAKE_ISSUE_AUTHOR=a-stranger)"
 check "the refusal names the author" "1" "$(grep -c "written by 'a-stranger', not the repo owner 'fernandodof'" "$SB/log/stderr")"

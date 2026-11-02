@@ -1153,3 +1153,76 @@ Five non-test files.
 - Comparing against the base to tell old errors from new.
 - `apps/api` needs nothing special: it has no tsconfig at its root, and its
   sub-apps have their own.
+
+---
+
+# Increment: the agent reads only what the trust gate approved (#48)
+
+Tracks [#48](https://github.com/fernandodof/cal.diy-2/issues/48).
+
+## Overview
+
+The agent no longer reads GitHub itself. The issue's title and body, as the
+harness fetched them and the trust gate approved them, go into the prompts of
+the phases that need the issue (Research and Review). `gh` leaves the
+allowlist and is denied outright. The trust gate also refuses an issue whose
+last editor is not the owner, unless `--trust` is given.
+
+## Problem Statement
+
+The trust gate (#25) checks the issue's author. The agent, however, had
+`Bash(gh issue view:*)`, and `headless.md` told Phase 4 to read the issue that
+way. That command also takes `--comments`, any issue number, and
+`-R <other repo>`. The repo is public, so anyone's comment, or any other issue,
+could reach a session that edits and commits code.
+
+Checked during research:
+
+- **Edits:** the only collaborator is the owner
+  (`gh api repos/fernandodof/cal.diy-2/collaborators`), so today nobody else can
+  edit the owner's issue body or title. GraphQL exposes the last `editor` (`null`
+  on #11), so the gate can check it cheaply in case that changes.
+- **Probe** (real `claude -p`, Haiku): with `Bash(gh:*)` on the deny list,
+  `gh issue view 11 --comments` is denied while `ls` runs.
+
+## Technical Design
+
+- **Allowlist:** drop `Bash(gh issue view:*)`. **Deny list:** `Bash(gh pr:*)`
+  becomes `Bash(gh:*)`, which covers `gh issue`, `gh api` and `gh pr`. The
+  harness keeps using `gh` itself.
+- **Prompts:** Phase 1 already carries `# Issue #N: <title>` and the body from
+  `issue.json`. Phase 4 now carries it too. Phases 2, 3 and fix read only the
+  spec and `review.json`, so they don't change.
+- **`headless.md`:** Phase 1 reads the issue from the prompt, as now. Phase 4's
+  spec is `<spec>/design.md` plus the issue text in the prompt. It doesn't read
+  GitHub, and it doesn't use `gh`.
+- **Trust gate:** after the author check, fetch the last editor with
+  `gh api graphql` (`repository.issue(number).editor.login`). If it is set and
+  isn't the owner, refuse with exit 3 unless `--trust`, as for a stranger's
+  issue. If the query fails, stop with exit 2 before anything is created: a gate
+  that can't see is closed.
+
+### Files
+
+| File | Change |
+|---|---|
+| `scripts/issue-to-pr.sh` | allow and deny lists; issue text in Phase 4's prompt; editor check |
+| `.claude/skills/implement-task/headless.md` | Phase 4 reads the issue from the prompt, never `gh` |
+| `scripts/issue-to-pr.test.sh` | tests |
+
+Two non-test files.
+
+## Edge Cases
+
+- **An owner's issue edited by a collaborator** → refused unless `--trust`.
+- **The editor query fails** (network, rate limit) → refused with exit 2, nothing
+  created.
+- **`/code-review`'s sub-agents** run under the same deny list, so they can't
+  call `gh` either.
+
+## Out of Scope
+
+- Comments as a source of requirements. If one matters, the owner moves it into
+  the body.
+- Linked issues and PRs named in the body: the agent sees their numbers, not
+  their content.

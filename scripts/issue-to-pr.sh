@@ -95,6 +95,19 @@ if [[ "$AUTHOR" != "$OWNER" && "$TRUST" != true ]]; then
   echo "issue-to-pr: read it, then pass --trust to run it anyway" >&2
   exit 3
 fi
+# The author is not the whole of it: whoever last edited the body wrote what the
+# agent will read. Unknown is not "nobody", so a failed lookup stops the run.
+EDITOR_LOGIN="$(gh api graphql -F owner='{owner}' -F name='{repo}' -F number="$ISSUE" \
+  -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { editor { login } } } }' \
+  --jq '.data.repository.issue.editor.login // ""' 2>/dev/null)" || {
+  echo "issue-to-pr: could not read who last edited #$ISSUE" >&2
+  exit 2
+}
+if [[ -n "$EDITOR_LOGIN" && "$EDITOR_LOGIN" != "$OWNER" && "$TRUST" != true ]]; then
+  echo "issue-to-pr: refused — #$ISSUE was last edited by '$EDITOR_LOGIN', not the repo owner '$OWNER'." >&2
+  echo "issue-to-pr: read it, then pass --trust to run it anyway" >&2
+  exit 3
+fi
 
 # --- base branch ------------------------------------------------------------
 # main, unless the issue names another. Every later use of the base — the
@@ -203,13 +216,15 @@ echo "issue-to-pr: installing dependencies in the worktree" >&2
 
 # --- agent sessions ---------------------------------------------------------
 # What the agent may run: enough to implement and verify its own work, which the
-# #11 run was denied. Pushing and opening PRs are the harness's, and the deny list
-# keeps them that way even if the allow list or permission mode is loosened.
+# #11 run was denied. Pushing and opening PRs are the harness's, and so is GitHub:
+# `gh issue view` also reads comments, other issues and other repos, none of which
+# the trust gate saw. The deny list keeps both that way even if the allow list or
+# permission mode is loosened.
 ALLOWED_TOOLS="Read,Edit,Write,Glob,Grep,Skill"
 ALLOWED_TOOLS+=",Bash(yarn test:*),Bash(yarn biome:*),Bash(yarn turbo run type-check:*),Bash(yarn tsc --noEmit -p:*)"
 ALLOWED_TOOLS+=",Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*)"
-ALLOWED_TOOLS+=",Bash(ls:*),Bash(cat:*),Bash(grep:*),Bash(find:*),Bash(gh issue view:*)"
-DISALLOWED_TOOLS="Bash(git push:*),Bash(gh pr:*)"
+ALLOWED_TOOLS+=",Bash(ls:*),Bash(cat:*),Bash(grep:*),Bash(find:*)"
+DISALLOWED_TOOLS="Bash(git push:*),Bash(gh:*)"
 
 ISSUE_URL="$(jq -r '.url' "$RUN_DIR/issue.json")"
 SPEC=""
@@ -239,7 +254,8 @@ for phase in 1-research 2-plan 3-implement 4-review fix; do
     n=$((n + 1))
   fi
   TASK="/implement-task --headless --phase $n --base $BASE_REF $ISSUE_URL${SPEC:+ --spec $SPEC}"
-  if [[ "$phase" == 1-research ]]; then
+  # The issue as the trust gate approved it, for the phases that read the issue.
+  if [[ "$phase" == 1-research || "$phase" == 4-review ]]; then
     TASK+="$(jq -r '"\n\n# Issue #\(.number): \(.title)\n\n" + (.body // "(no description)")' "$RUN_DIR/issue.json")"
   fi
   case "$phase" in
