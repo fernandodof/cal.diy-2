@@ -13,13 +13,6 @@
      `returns minutes for a value not divisible by 60`,
      `returns days for 0` (current behaviour, ADR-001)
    - Verified by: `yarn test packages/lib/findDurationType.test.ts`
-
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 2. **`convertToNewDurationType` converts exactly between every unit pair** — all
    nine `${prevType}_${newType}` closures, with evenly divisible inputs
    - `packages/lib/convertToNewDurationType.test.ts` (new)
@@ -28,6 +21,13 @@
      `converts hours to minutes`, `converts hours to days`, `converts days to minutes`,
      `converts days to hours`
    - Verified by: `yarn test packages/lib/convertToNewDurationType.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 3. **`convertToNewDurationType` rounding and zero, as they are today** — pins
    `Math.ceil` on the three lossy directions and `0` in all nine directions (ADR-001)
    - `packages/lib/convertToNewDurationType.test.ts`
@@ -59,3 +59,5 @@ yarn test packages/lib/convertToNewDurationType.test.ts
   are asserted as-is, not fixed (ADR-001, `future-work.md`).
 - Slice 1 done: `findDurationType.test.ts` added, 4/4 pass. These pin existing
   behaviour, so there was no red step. Next: slice 2, the nine conversion pairs.
+- Slice 2 done: `convertToNewDurationType.test.ts` added with all nine pairs, 9/9
+  pass. Next: slice 3, rounding and zero.
