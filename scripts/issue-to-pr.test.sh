@@ -107,20 +107,20 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
         echo "it('x', () => {});" > thing.test.ts
       fi
       gate 3-implement
-      mkdir -p .claude/headless-runs
-      printf '## What changed\n\nThe agent draft.\n' > .claude/headless-runs/pr-body.md ;;
+      mkdir -p .agent-handoff
+      printf '## What changed\n\nThe agent draft.\n' > .agent-handoff/pr-body.md ;;
     4)
       # FAKE_REVIEW is the findings JSON; "none" writes no file at all.
       gate 4-review
-      mkdir -p .claude/headless-runs
+      mkdir -p .agent-handoff
       no_findings='{"findings": []}'
-      [[ "${FAKE_REVIEW:-}" == none ]] || echo "${FAKE_REVIEW:-$no_findings}" > .claude/headless-runs/review.json ;;
+      [[ "${FAKE_REVIEW:-}" == none ]] || echo "${FAKE_REVIEW:-$no_findings}" > .agent-handoff/review.json ;;
     fix)
       gate fix
       echo "export const x = 2;" > thing.ts ;;
   esac
-  # Everything but the PR body draft, which headless.md says is never committed.
-  git add -A -- . ':!.claude'
+  # Everything but the handoff files, which headless.md says are never committed.
+  git add -A -- . ':!.agent-handoff'
   git -c user.email=a@b -c user.name=agent commit --quiet -m "phase $phase"
 fi
 if [[ -n "$phase" && ( "${FAKE_FAIL_PHASE:-}" == "$phase" || ( "$mode" == fail && "$phase" == 3 ) ) ]]; then
@@ -187,6 +187,19 @@ run() {
 }
 
 echo "issue-to-pr orchestrator"
+
+# --- handoff path -----------------------------------------------------------
+
+# A headless session cannot write under .claude/, even with an allow rule for
+# the path, so the rules must not send the agent there.
+HEADLESS_MD="$REPO_ROOT/.claude/skills/implement-task/headless.md"
+check "the rules send pr-body.md to .agent-handoff/" "yes" \
+  "$(grep -q '\.agent-handoff/pr-body\.md' "$HEADLESS_MD" && echo yes || echo no)"
+check "the rules send review.json to .agent-handoff/" "yes" \
+  "$(grep -q '\.agent-handoff/review\.json' "$HEADLESS_MD" && echo yes || echo no)"
+check "the rules never name .claude/headless-runs" "0" "$(grep -c '\.claude/headless-runs' "$HEADLESS_MD" || true)"
+check "both handoff files are gitignored" "2" \
+  "$(git -C "$REPO_ROOT" check-ignore .agent-handoff/pr-body.md .agent-handoff/review.json | wc -l | tr -d ' ')"
 
 # --- green path -------------------------------------------------------------
 SB="$(sandbox)"

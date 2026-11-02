@@ -281,7 +281,7 @@ for phase in 1-research 2-plan 3-implement 4-review fix; do
   # Standards findings and scope creep are the reviewer's to weigh; a spec
   # requirement that is missing or wrong is the one thing worth a second pass.
   if [[ "$phase" == 4-review ]] && jq -e '.findings | any(.axis == "spec" and (.kind == "missing" or .kind == "wrong"))' \
-    "$WORKTREE/.claude/headless-runs/review.json" >/dev/null 2>&1; then
+    "$WORKTREE/.agent-handoff/review.json" >/dev/null 2>&1; then
     FIX_PENDING=true
   fi
   # A plan marked blocked is a stop on its own, whatever the gate file says.
@@ -325,7 +325,7 @@ git -C "$WORKTREE" push --quiet -u origin "$BRANCH"
 {
   echo "Closes #$ISSUE"
   echo
-  cat "$WORKTREE/.claude/headless-runs/pr-body.md" 2>/dev/null \
+  cat "$WORKTREE/.agent-handoff/pr-body.md" 2>/dev/null \
     || echo "_The agent left no PR body draft; the evidence below is all there is._"
   echo
   if [[ -n "$SPEC" ]]; then

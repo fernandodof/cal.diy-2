@@ -191,6 +191,19 @@
       exactly one fix session and no second review; `wrong` likewise; standards-only
       and creep-only findings → none; a failed fix session → red
 
+19. **The agent's handoff files reach the harness from a path it can write** —
+    proves Phase 3's `pr-body.md` and Phase 4's `review.json` go to and are read
+    from `.agent-handoff/`, gitignored, and nothing still names the old path
+    - `.gitignore`, `.claude/skills/implement-task/headless.md`,
+      `scripts/issue-to-pr.sh`, `scripts/implement-evidence.sh`,
+      `docs/harness/implement-evidence-schema.md`, `scripts/issue-to-pr.test.sh`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. The fake `claude` writes both
+      files to `.agent-handoff/`, and the existing body, review and fix-round
+      checks still pass. New checks: `headless.md` names
+      `.agent-handoff/pr-body.md` and `.agent-handoff/review.json` and never
+      `.claude/headless-runs`, and `git check-ignore` matches both files.
+      `./scripts/implement-verdict.test.sh` is unchanged and still passes.
+
 ## In Progress
 
 ## Blocked
@@ -305,3 +318,12 @@
   43 verdict; both exit 0). Found while testing: `n=fix` made the old
   `[[ $n -eq 1 ]]` checks read an unset variable under `set -u`; they now compare
   the phase name. The orchestrator suite now takes over two minutes.
+- #51 planned on `fix/agent-handoff-path`, cut from `origin/main` after #41
+  merged. Base branch: `main` (confirmed at the Phase 2 gate). Cause found by the
+  #33 smoke run (PR #42). Two real-session probes showed that a headless `Write`
+  under `.claude/` is denied as a sensitive file, even with an explicit allow
+  rule, while `.agent-handoff/` works.
+- Slice 19 done: `pr-body.md` and `review.json` move to `.agent-handoff/`, which
+  is gitignored, in the rules, the orchestrator, the collector and the schema
+  doc. ADR-002 records why an allow rule was not enough (197 orchestrator, 43
+  verdict checks; both exit 0). The real check is re-running #11 after merge.

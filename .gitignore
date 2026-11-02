@@ -108,6 +108,7 @@ packages/**/.yarn/ci-cache/
 .claude/plans/
 .claude/settings.local.json
 .claude/headless-runs/
+.agent-handoff/
 
 # Spec drafts (rough work, not ready for review)
 specs/**/_drafts/
