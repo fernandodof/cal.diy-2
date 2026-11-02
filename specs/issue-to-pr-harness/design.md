@@ -876,3 +876,81 @@ Five non-test files.
 ## Out of Scope
 
 - Re-reviewing after the fix; a second fix round; auto-fixing standards findings.
+
+---
+
+# Increment: handoff files outside `.claude/` (#51)
+
+Tracks [#51](https://github.com/fernandodof/cal.diy-2/issues/51). Found by the
+#33 smoke run on #11 (PR #42).
+
+## Overview
+
+Phase 3 writes `pr-body.md`, and Phase 4 writes `review.json`, for the harness
+to read. Both currently go under `.claude/headless-runs/`, where a headless
+session cannot write. They move to a gitignored `.agent-handoff/` at the
+worktree root. The harness's own run logs stay in `.claude/headless-runs/`:
+bash writes those, not the agent.
+
+## Problem Statement
+
+The smoke run's Phase 3 and Phase 4 sessions both had their `Write` denied as a
+"sensitive file" (`permission_denials` in `.claude/headless-runs/issue-11/{3-implement,4-review}/result.json`).
+So the PR opened without the agent's body, and the review was recorded as
+missing, which made the verdict red. Two probes against a real `claude -p`
+session (Haiku, `--permission-mode acceptEdits`, the same flags as
+`headless-task.sh`) showed:
+
+- A `Write` to `.claude/headless-runs/a.md` is denied. Adding an explicit
+  `Write(.claude/headless-runs/**)` allow rule doesn't change that, so
+  allowlisting cannot fix it.
+- A `Write` to `.agent-handoff/b.md` (gitignored, directory not created in
+  advance) and to `specs/c.md` succeeds. `Write` creates the directory itself,
+  so the agent needs no `mkdir`.
+
+The fake `claude` in `scripts/issue-to-pr.test.sh` writes with plain bash, so it
+could never see this.
+
+## Technical Design
+
+One path, `.agent-handoff/`, relative to the worktree root, for both files:
+
+| Today | After |
+|---|---|
+| `.claude/headless-runs/pr-body.md` | `.agent-handoff/pr-body.md` |
+| `.claude/headless-runs/review.json` | `.agent-handoff/review.json` |
+
+`.gitignore` gains `.agent-handoff/`. The worktree is cut from the base, so the
+entry has to be on the base for an agent's `git add` to skip the files.
+
+### Files
+
+| File | Change |
+|---|---|
+| `.gitignore` | add `.agent-handoff/` |
+| `.claude/skills/implement-task/headless.md` | the four mentions of the path (Phase 3, Phase 4, fix round) |
+| `scripts/issue-to-pr.sh` | `review.json` (fix trigger, line 284) and `pr-body.md` (PR body, line 328) |
+| `scripts/implement-evidence.sh` | `REVIEW_FILE` (line 210) |
+| `docs/harness/implement-evidence-schema.md` | where `review` comes from (line 156) |
+| `scripts/issue-to-pr.test.sh` | the fake `claude` writes both files to the new path |
+
+Five non-test files; about 15 changed lines.
+
+## Edge Cases
+
+- **A worktree left over from an earlier run** (e.g. `issue-11`) still has files
+  in the old path. The harness reads only the new path, so they are ignored.
+  Re-runs are #32's job; this increment adds no migration.
+- **The base branch has no `.agent-handoff/` entry in `.gitignore`** (a base
+  other than `main` cut before this merges). The agent's `git add` could then
+  commit the files. The rules already say not to commit them; nothing more is
+  added here.
+
+## Out of Scope
+
+- The PR-body fallback text not pointing at the gate file (#45).
+- Moving the harness's run logs out of `.claude/headless-runs/`: bash writes
+  them, so they are not affected.
+- A test against a real session: the probes above, plus re-running #11 after
+  merge, are the check. The fake-`PATH` tests can only show that the harness and
+  the rules use the same path.
