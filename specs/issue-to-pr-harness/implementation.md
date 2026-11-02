@@ -230,12 +230,6 @@
       a `.ts` file with no project → `type-check: not covered`, red; a `tsc` that
       exits non-zero with no error lines → not run.
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 22. **The agent can type-check what it changed**. This proves the rules tell
     Phase 3 to run the same `tsc` command and that the session allows it.
     - `scripts/issue-to-pr.sh` (allowlist),
@@ -243,6 +237,12 @@
     - Verified by: `./scripts/issue-to-pr.test.sh`. Phase 3's rules name
       `yarn tsc --noEmit -p`; the allowlist has `Bash(yarn tsc --noEmit -p:*)`;
       the rules no longer say web covers `packages/lib`.
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 23. **The evidence reads cleanly** (#45). Costs show to the cent, commands show
     no temp paths, the run directory holds only the current run's files, and the
@@ -388,3 +388,8 @@
   the changed files' error lines. `apps/web` is left to the turbo check, and files
   with no project are "not covered" (216 orchestrator checks, exit 0; verdict
   suite unchanged, exit 0). Next: slice 22, letting the agent run the same check.
+- Slice 22 done: the allowlist gains `Bash(yarn tsc --noEmit -p:*)`, and Phase 3's
+  Verify names the per-project `tsc`. The paragraph saying web covers
+  `packages/lib` is corrected (219 orchestrator checks, exit 0). A real-session
+  probe (Haiku) ran `yarn tsc --noEmit -p packages/lib/tsconfig.json` under that
+  rule; its compound form with `; echo` was denied. Next: slice 23, the tidy-ups.

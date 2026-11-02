@@ -203,7 +203,7 @@ echo "issue-to-pr: installing dependencies in the worktree" >&2
 # #11 run was denied. Pushing and opening PRs are the harness's, and the deny list
 # keeps them that way even if the allow list or permission mode is loosened.
 ALLOWED_TOOLS="Read,Edit,Write,Glob,Grep,Skill"
-ALLOWED_TOOLS+=",Bash(yarn test:*),Bash(yarn biome:*),Bash(yarn turbo run type-check:*)"
+ALLOWED_TOOLS+=",Bash(yarn test:*),Bash(yarn biome:*),Bash(yarn turbo run type-check:*),Bash(yarn tsc --noEmit -p:*)"
 ALLOWED_TOOLS+=",Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*)"
 ALLOWED_TOOLS+=",Bash(ls:*),Bash(cat:*),Bash(grep:*),Bash(find:*),Bash(gh issue view:*)"
 DISALLOWED_TOOLS="Bash(git push:*),Bash(gh pr:*)"

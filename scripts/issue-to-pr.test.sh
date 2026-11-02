@@ -228,6 +228,15 @@ check "the fix round verifies as Phase 3 does" "yes" \
 check "the session allowlist covers it" "yes" \
   "$(grep -qF 'Bash(yarn biome:*)' "$REPO_ROOT/scripts/issue-to-pr.sh" && echo yes || echo no)"
 
+# The evidence type-checks each project the change touched with tsc; the agent
+# runs the same command, so it can see the errors the evidence will.
+check "Phase 3 type-checks the projects it changed" "yes" \
+  "$(grep -q '^yarn tsc --noEmit -p ' "$IMPLEMENT_MD" && echo yes || echo no)"
+check "the session allowlist covers it" "yes" \
+  "$(grep -qF 'Bash(yarn tsc --noEmit -p:*)' "$REPO_ROOT/scripts/issue-to-pr.sh" && echo yes || echo no)"
+check "the rules no longer say web covers packages/lib" "0" \
+  "$(grep -c 'actually covers a change in' "$IMPLEMENT_MD" || true)"
+
 # --- green path -------------------------------------------------------------
 SB="$(sandbox)"
 check "a clean run exits 0" "0" "$(run "$SB")"
