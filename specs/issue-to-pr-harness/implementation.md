@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: complete
+## Status: planned
 
 ## Completed
 
@@ -246,6 +246,16 @@
 
 ## Next Steps
 
+24. **The agent reads only the issue the trust gate approved**. This proves
+    `gh` is denied to every session, Phase 4 gets the issue text in its prompt,
+    and an issue last edited by someone other than the owner is refused.
+    - `scripts/issue-to-pr.sh`, `.claude/skills/implement-task/headless.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. New checks: the allowlist has
+      no `gh` and the deny list has `Bash(gh:*)`; Phase 4's prompt carries the
+      title and body; `headless.md` doesn't tell any phase to run `gh issue view`;
+      `FAKE_ISSUE_EDITOR=a-stranger` → exit 3, no branch, and `--trust` lets it
+      through; a failing editor query → exit 2.
+
 ## In Progress
 
 ## Blocked
@@ -407,3 +417,6 @@
   a refused re-run would otherwise erase the only logs. `Closes #N` appears once,
   and a missing draft points at `gates/3-implement.md` (228 orchestrator, 44
   verdict checks; both exit 0).
+- #48 planned on `fix/trust-what-the-agent-reads`, cut from `origin/main` after
+  #56 merged. Base branch: `main`. One slice. The user asked to continue
+  through the gates without stopping.
