@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: complete
 
 ## Completed
 
@@ -240,6 +240,14 @@
 
 
 
+
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 ## In Progress
 
 ## Blocked
@@ -420,3 +428,8 @@
 - #48 planned on `fix/trust-what-the-agent-reads`, cut from `origin/main` after
   #56 merged. Base branch: `main`. One slice. The user asked to continue
   through the gates without stopping.
+- Slice 24 done: `gh` is off the allowlist and `Bash(gh:*)` is on the deny list,
+  checked with a real-session probe. Phase 4 gets the approved issue text in its
+  prompt. The trust gate refuses an issue last edited by anyone but the owner
+  (GraphQL `editor`), and a failed lookup exits 2 (239 orchestrator checks, exit
+  0; verdict suite unchanged, exit 0).

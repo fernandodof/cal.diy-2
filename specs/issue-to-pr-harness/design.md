@@ -1199,7 +1199,8 @@ Checked during research:
 - **Trust gate:** after the author check, fetch the last editor with
   `gh api graphql` (`repository.issue(number).editor.login`). If it is set and
   isn't the owner, refuse with exit 3 unless `--trust`, as for a stranger's
-  issue. If the query fails, refuse as well: a gate that can't see is closed.
+  issue. If the query fails, stop with exit 2 before anything is created: a gate
+  that can't see is closed.
 
 ### Files
 

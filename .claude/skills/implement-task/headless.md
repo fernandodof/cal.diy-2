@@ -69,8 +69,10 @@ question you can answer with a reasonable, stated assumption is not a blocker.
   branch, with everything it would otherwise ask for given up front, so it never
   stops to ask:
   - the fixed point is `origin/<base>`;
-  - the spec is `<spec>/design.md` together with the issue URL (read it with
-    `gh issue view`) — there is no `docs/agents/issue-tracker.md` to consult;
+  - the spec is `<spec>/design.md` together with the issue text at the end of
+    this prompt — there is no `docs/agents/issue-tracker.md` to consult, and no
+    phase reads GitHub: `gh` is denied, because comments and other issues never
+    passed the harness's trust gate;
   - the standards source is `CONTRIBUTING.md`, plus the skill's smell baseline.
 
   Change no code. Besides the gate file, write the findings to
