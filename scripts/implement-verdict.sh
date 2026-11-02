@@ -128,7 +128,7 @@ RENDER=$USD'
       "",
       (if $ev.phases then
         "### Phases\n\n| Phase | Session | Gate | Turns | Cost |\n|---|---|---|---|---|\n"
-        + ($ev.phases | map("| \(.phase) | \(.status // "no summary") | \(.outcome // "missing") | \(.turns // "–") | \(if .cost_usd then (.cost_usd | usd) else "–" end) |") | join("\n"))
+        + ($ev.phases | map("| \(.phase) | \(if .subtype == "earlier_run" then "earlier run" else .status // "no summary" end) | \(.outcome // "missing") | \(.turns // "–") | \(if .cost_usd then (.cost_usd | usd) else "–" end) |") | join("\n"))
         + "\n"
       else empty end),
       (if $ev.criteria then

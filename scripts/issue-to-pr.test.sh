@@ -68,7 +68,19 @@ case "$1 $2" in
   "pr create") echo "https://example.test/pull/99" ;;
   "label list") { printf '%s\n' ${FAKE_EXISTING_LABELS:-}; cat "$FAKE_LOG/labels" 2>/dev/null || true; } ;;
   "label create") echo "$3" >> "$FAKE_LOG/labels" ;;
-  "pr edit") ;;
+  # FAKE_OPEN_PR_BODY: an open PR #99 on the branch, with that body.
+  "pr list")
+    if [[ -n "${FAKE_OPEN_PR_BODY:-}" ]]; then
+      jq -n --arg body "$FAKE_OPEN_PR_BODY" \
+        '[{number: 99, url: "https://example.test/pull/99", body: $body, labels: [{name: "agent:needs-help"}]}]'
+    else
+      echo '[]'
+    fi ;;
+  "pr edit")
+    while [[ $# -gt 0 ]]; do
+      [[ "$1" == --body-file ]] && cp "$2" "$FAKE_LOG/pr-edit-body.md"
+      shift
+    done ;;
   *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
 esac
 FAKE
@@ -137,7 +149,9 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
   esac
   # Everything but the handoff files, which headless.md says are never committed.
   git add -A -- . ':!.agent-handoff'
-  git -c user.email=a@b -c user.name=agent commit --quiet -m "phase $phase"
+  # A re-run of a phase may change nothing, and git's "nothing to commit" would
+  # land in the JSON this fake prints.
+  git diff --cached --quiet || git -c user.email=a@b -c user.name=agent commit --quiet -m "phase $phase"
 fi
 if [[ -n "$phase" && ( "${FAKE_FAIL_PHASE:-}" == "$phase" || ( "$mode" == fail && "$phase" == 3 ) ) ]]; then
   jq -nc --arg subtype "${FAKE_FAIL_SUBTYPE:-error_max_turns}" \
@@ -306,7 +320,7 @@ check "the criterion was found in the harness's own run, and passed" "true passe
   "$(jq -r '.criteria[0] | "\(.test_found) \(.test_status) \(.declared)"' "$SB/runs/issue-7/evidence.json")"
 check "the body has the criteria table" "1" \
   "$(grep -cF '| ✅ | the thing works | `thing.test.ts` › thing works | passed |' "$BODY")"
-check "a second run refuses the existing branch" "2" "$(run "$SB")"
+check "a second run resumes the existing branch instead of refusing it" "0" "$(run "$SB")"
 check "all three labels are created on first use" "3" "$(grep -c '^label create agent:' "$SB/log/gh.log")"
 check "a green PR is not labelled" "0" "$(grep -c '^pr create .*--label' "$SB/log/gh.log")"
 rm -rf "$SB"
@@ -785,6 +799,76 @@ SB="$(sandbox)"
 run "$SB" FAKE_EXISTING_LABELS="agent:implement agent:needs-help" >/dev/null
 check "existing labels are left alone" "label create agent:needs-clarification" \
   "$(grep '^label create' "$SB/log/gh.log" | cut -d' ' -f1-3)"
+rm -rf "$SB"
+
+# --- re-runs ----------------------------------------------------------------
+# Phases the last run of a sandbox asked for, in order.
+calls_since() { tail -n +"$(($2 + 1))" "$1/log/claude.calls" | sed -n 's/.*--phase \([0-9a-z]*\).*/\1/p' | xargs; }
+calls_so_far() { wc -l < "$1/log/claude.calls" | xargs; }
+subtypes() { jq -r '[.phases[] | "\(.phase):\(.subtype)"] | join(" ")' "$1/runs/issue-7/evidence.json"; }
+
+PR_INTRO=$'Hand-written intro, kept.\n\n'
+PR_FOOTER=$'\n\nA footer someone added.\n'
+OPEN_PR_BODY="${PR_INTRO}"$'<!-- evidence:start -->\nold evidence\n<!-- evidence:end -->'"${PR_FOOTER}"
+
+SB="$(sandbox)"
+run "$SB" FAKE_OUTCOME_2=blocked >/dev/null
+before="$(calls_so_far "$SB")"
+check "a re-run of a stopped issue resumes instead of refusing" "0" "$(run "$SB" FAKE_OPEN_PR_BODY="$OPEN_PR_BODY")"
+check "  it starts at the phase that did not continue" "2 3 4" "$(calls_since "$SB" "$before")"
+check "  the done phase is an earlier-run record" "1-research:earlier_run 2-plan:success 3-implement:success 4-review:success" "$(subtypes "$SB")"
+check "  no second PR is opened" "1" "$(grep -c '^pr create' "$SB/log/gh.log")"
+check "  the open PR is edited" "1" "$(grep -c '^pr edit 99 ' "$SB/log/gh.log")"
+check "  the text before the evidence is kept byte for byte" "yes" \
+  "$(head -c "${#PR_INTRO}" "$SB/log/pr-edit-body.md" | cmp -s - <(printf '%s' "$PR_INTRO") && echo yes || echo no)"
+check "  the text after it is kept byte for byte" "yes" \
+  "$(tail -c "${#PR_FOOTER}" "$SB/log/pr-edit-body.md" | cmp -s - <(printf '%s' "$PR_FOOTER") && echo yes || echo no)"
+check "  the old evidence is replaced" "0 1" \
+  "$(grep -c '^old evidence$' "$SB/log/pr-edit-body.md") $(grep -c '^\*\*Verdict: green\*\*$' "$SB/log/pr-edit-body.md")"
+check "  a green re-run drops agent:needs-help" "1" "$(grep -c '^pr edit 99 .*--remove-label agent:needs-help' "$SB/log/gh.log")"
+check "  the table says which phases ran earlier" "1" "$(grep -c '^| 1-research | earlier run | continue | – | – |$' "$SB/log/pr-edit-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" >/dev/null
+before="$(calls_so_far "$SB")"
+check "a re-run of a finished branch exits by its verdict" "1" "$(run "$SB" FAKE_OPEN_PR_BODY="$OPEN_PR_BODY" FAKE_YARN_FAIL="biome check")"
+check "  no session starts" "" "$(calls_since "$SB" "$before")"
+check "  every phase is an earlier-run record" "1-research:earlier_run 2-plan:earlier_run 3-implement:earlier_run 4-review:earlier_run" "$(subtypes "$SB")"
+check "  a red re-run adds agent:needs-help" "1" "$(grep -c '^pr edit 99 .*--add-label agent:needs-help' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+MISSING_FINDING='{"findings": [{"axis": "spec", "kind": "missing", "severity": "hard", "summary": "x", "where": "a:1", "quote": "q"}]}'
+run "$SB" FAKE_REVIEW="$MISSING_FINDING" >/dev/null
+before="$(calls_so_far "$SB")"
+run "$SB" FAKE_REVIEW="$MISSING_FINDING" FAKE_OPEN_PR_BODY="$OPEN_PR_BODY" >/dev/null
+check "a finished fix round never runs again" "" "$(calls_since "$SB" "$before")"
+check "  nor does the review it followed" "4-review:earlier_run fix:earlier_run" "$(subtypes "$SB" | cut -d' ' -f4-)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" >/dev/null
+git -C "$SB/worktrees/issue-7" -c user.email=h@b -c user.name=human commit --quiet --allow-empty -m "a person's fix"
+before="$(calls_so_far "$SB")"
+run "$SB" FAKE_OPEN_PR_BODY="$OPEN_PR_BODY" >/dev/null
+check "a commit after the review gets a new review" "4" "$(calls_since "$SB" "$before")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" >/dev/null
+git -C "$SB/repo" worktree remove --force "$SB/worktrees/issue-7"
+before="$(calls_so_far "$SB")"
+check "a removed worktree is re-attached to the branch" "0" "$(run "$SB" FAKE_OPEN_PR_BODY="$OPEN_PR_BODY")"
+check "  on the branch" "agent/issue-7" "$(git -C "$SB/worktrees/issue-7" rev-parse --abbrev-ref HEAD)"
+check "  and the review, whose findings went with it, runs again" "4" "$(calls_since "$SB" "$before")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" >/dev/null
+git -C "$SB/worktrees/issue-7" -c user.email=h@b -c user.name=human commit --quiet --amend -m "rewritten"
+check "a branch that diverged from origin is refused" "2" "$(run "$SB")"
+check "  and says so" "1" "$(grep -c 'diverged' "$SB/log/stderr")"
 rm -rf "$SB"
 
 # --- headless-task.sh on its own --------------------------------------------

@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: complete
 
 ## Completed
 
@@ -242,6 +242,14 @@
 
 
 
+
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 ## In Progress
 
 ## Blocked
@@ -456,3 +464,12 @@
   round once per issue, the review reused unless commits landed after it,
   earlier phases shown as earlier-run records. (b) and (c) follow as separate
   PRs.
+- Slices 25 and 26 done together, in one commit: they share the run's new
+  branch-reuse path and its tests. A re-run reuses or re-attaches the worktree,
+  fast-forwards to `origin`, and refuses a diverged branch. It skips phases done
+  earlier (earlier-run records), never repeats a fix round, and reuses a review
+  unless commits came after it. With an open PR it edits only the evidence block
+  (jq `split`, not `index`, because bodies carry emoji) and moves
+  `agent:needs-help` with the verdict (261 orchestrator, 45 verdict checks; both
+  exit 0). The old check "a second run refuses the existing branch" now expects
+  the resume.
