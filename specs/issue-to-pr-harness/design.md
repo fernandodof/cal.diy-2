@@ -954,3 +954,70 @@ Five non-test files; about 15 changed lines.
 - A test against a real session: the probes above, plus re-running #11 after
   merge, are the check. The fake-`PATH` tests can only show that the harness and
   the rules use the same path.
+
+---
+
+# Increment: the agent runs biome before committing (#44)
+
+Tracks [#44](https://github.com/fernandodof/cal.diy-2/issues/44). Found by both
+#33 smoke runs on #11 (PRs #42 and #53). In the second run, biome was the only
+reason the verdict was red.
+
+## Overview
+
+Phase 3's per-slice Verify step adds `yarn biome check --write` on the files the
+slice changed. That is the same `biome check` the harness's evidence runs, with
+the safe fixes applied. The fix round verifies the same way, so it inherits the
+step.
+
+## Problem Statement
+
+In both runs, the agent's two new test files had `import { describe, it, expect }`,
+and the evidence's `yarn biome check` failed them with
+`assist/source/organizeImports`. The agent never ran biome, because
+`phases/3-implement.md`'s Verify section lists only `yarn test` and the `@calcom/web`
+type-check. The pre-commit hook didn't catch it either: `lint-staged.config.mjs`
+runs `biome lint`, and import sorting is a biome *assist*, which `lint` does not
+run. A probe on a scratch `packages/lib` test file with those imports showed:
+
+- `yarn biome lint` exits 0;
+- `yarn biome check --no-errors-on-unmatched` exits 1;
+- `yarn biome check --write` exits 0 and rewrites the import to
+  `{ describe, expect, it }`, after which `check` exits 0.
+
+`Bash(yarn biome:*)` is already on the session allowlist (`scripts/issue-to-pr.sh:206`),
+so no permission change is needed.
+
+## Technical Design
+
+- `phases/3-implement.md`, Verify: add the biome command, and say why the
+  pre-commit hook is not enough. "Both must pass" becomes "All three". Because the
+  phase file is shared, interactive runs get the step too, and the CLAUDE.md
+  convention that `yarn lint`/`yarn format` run biome holds for them as well.
+- `headless.md`, fix round: "Commit as in Phase 3" becomes "Verify and commit as
+  in Phase 3", so the fix round's edits are checked the same way.
+
+### Files
+
+| File | Change |
+|---|---|
+| `.claude/skills/implement-task/phases/3-implement.md` | biome in the Verify block, and why the hook is not enough |
+| `.claude/skills/implement-task/headless.md` | the fix round verifies as Phase 3 does |
+| `scripts/issue-to-pr.test.sh` | the rules name `yarn biome check --write`, and the allowlist covers it |
+
+Two non-test files; about 15 changed lines.
+
+## Edge Cases
+
+- **A slice that changes no file biome reads** (shell, markdown): biome with
+  `--no-errors-on-unmatched` checks nothing and exits 0. The evidence still
+  records that as not run (#46, closed as not planned).
+- **`--write` changes a file after the tests ran**: only formatting and import
+  order change, so behaviour does not. The harness re-runs the tests itself in
+  any case.
+
+## Out of Scope
+
+- Changing the pre-commit hook to `biome check`: that is an upstream Cal.com
+  file, and upstream conventions beat ours.
+- Type-check coverage (#43).
