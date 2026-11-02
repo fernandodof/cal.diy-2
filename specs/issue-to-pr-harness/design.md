@@ -1226,3 +1226,107 @@ Two non-test files.
   the body.
 - Linked issues and PRs named in the body: the agent sees their numbers, not
   their content.
+
+---
+
+# Increment: re-runs resume and update the open PR (#32, part a)
+
+Tracks [#32](https://github.com/fernandodof/cal.diy-2/issues/32). Part (a) of
+three. (b) stops the ambiguity gate posting a duplicate comment; (c) covers
+worktree cleanup and a lock, folded in from #47.
+
+## Overview
+
+Running the harness again on an issue continues its branch instead of exiting 2
+at "branch agent/issue-N already exists". The run reuses the branch and
+worktree, starts at the first phase whose gate file doesn't say
+`Outcome: continue`, and, if a PR is open, replaces only its evidence block.
+
+## Decisions (the user's, 2026-11-02)
+
+- **The cost cap is per run.** A re-run gets the full `HEADLESS_TASK_MAX_COST_USD`.
+- **The fix round is once per issue.** Once `gates/fix.md` exists, no run starts
+  another fix.
+- **The review is reused** when `review.json` exists, its gate says continue, and
+  nothing was committed after that gate. A fix round's commits don't count: the
+  fix round never gets a second review. Otherwise the review runs again.
+- **Earlier phases' records** appear in this run's evidence as completed in an
+  earlier run, with no turns or cost.
+
+## Technical Design
+
+### Branch and worktree
+
+If `agent/issue-N` exists locally or on `origin`:
+
+1. Create a local branch from `origin/agent/issue-N` if only the remote one
+   exists.
+2. Prune stale worktree entries, then reuse `$WORKTREE` if it is on the branch.
+   Re-attach it with `git worktree add <dir> <branch>` if the directory is gone.
+   Exit 2 if the directory holds anything else.
+3. Fast-forward the branch to `origin/agent/issue-N`, which brings in what a
+   person pushed. If the two have diverged, exit 2.
+4. `yarn install --immutable` runs as before. It's cheap when nothing changed.
+
+### Where the run starts
+
+`SPEC` is resolved from the branch before any session starts, as Phase 1 does.
+Going through the phases in order, while every phase so far is done:
+
+| Phase | Done when |
+|---|---|
+| 1–3 | its gate file's first line is `Outcome: continue` |
+| 4-review | as above, plus `.agent-handoff/review.json` holds a findings array, plus no commit after the gate's commit (unless `gates/fix.md` exists) |
+| fix | `gates/fix.md` exists. It is then never run again |
+
+A phase that is done adds an earlier-run record to `phases.jsonl` instead of
+starting a session:
+`{phase, status: "completed", subtype: "earlier_run", turns: null, cost_usd: null, outcome: "continue"}`.
+The first phase that isn't done runs, and so does every phase after it. A
+re-run of Phase 2 means Phase 3 runs again too. If every phase is done, no
+session starts: the run only re-collects the evidence and updates the PR,
+which covers a person pushing a fix to the branch.
+
+### The PR
+
+`gh pr list --head <branch> --state open` finds an open PR. If there is one:
+
+- **The body:** everything between `<!-- evidence:start -->` and
+  `<!-- evidence:end -->`, markers included, is replaced with the new block. The
+  rest of the body stays byte-for-byte as it was, done in jq on the body string
+  and written with `jq -j`. A body with no markers gets the block appended.
+- **The update:** `gh pr edit <n> --body-file …`. A red verdict adds
+  `agent:needs-help`; a green one removes it.
+- **No second PR is created.** A branch whose PR is closed or merged gets a new
+  draft PR, as on a first run.
+
+The verdict's phase table shows `earlier run` in the session column for these
+records. That is the only change to the verdict.
+
+### Files
+
+| File | Change |
+|---|---|
+| `scripts/issue-to-pr.sh` | branch and worktree reuse, where the run starts, the PR edit, labels |
+| `scripts/implement-verdict.sh` | "earlier run" in the phase table |
+| `docs/harness/implement-evidence-schema.md` | `subtype: "earlier_run"` |
+| `scripts/issue-to-pr.test.sh`, `scripts/implement-verdict.test.sh` | tests |
+
+Three non-test files.
+
+## Edge Cases
+
+- **A gate says `blocked`**: that phase runs again. The owner has presumably
+  changed the issue or the branch.
+- **The worktree was recreated**: `.agent-handoff/` is gone, so the review runs
+  again, and the PR body's draft part is whatever the open PR already has.
+- **The PR body was edited by hand**: kept as it is. Only the evidence block
+  changes.
+- **The previous run directory** is moved aside (#43), so this run's logs stand
+  alone.
+
+## Out of Scope
+
+- (b) a duplicate ambiguity comment; (c) worktree cleanup and a lock.
+- The cost cap overshooting by one turn: the CLI checks it only between turns.
+  This is documented, not fixed.
