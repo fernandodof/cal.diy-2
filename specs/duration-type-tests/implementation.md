@@ -1,6 +1,6 @@
 # Duration Type Tests Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -17,13 +17,6 @@
    - Tests: the three "returns the value unchanged when converting X to X" criteria
      and the six "converts X to Y" criteria in design.md
    - Verified by: `yarn test packages/lib/convertToNewDurationType.test.ts`
-
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 3. **`convertToNewDurationType` rounding and zero are pinned** — proves the
    `Math.ceil` behaviour as it is today
    - `packages/lib/convertToNewDurationType.test.ts`
@@ -31,6 +24,12 @@
      1441 min → 2 d, 25 h → 2 d) and "returns 0 for a zero value in every direction"
      (all nine pairs)
    - Verified by: `yarn test packages/lib/convertToNewDurationType.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 `it` titles must match the Acceptance Criteria in design.md exactly — the harness
 looks tests up by full name (`<describe> <it>`).
@@ -54,3 +53,9 @@ yarn test packages/lib/convertToNewDurationType.test.ts
   `@calcom/lib` vitest project with no config change. Next: slice 2.
 - Slice 2 done: `packages/lib/convertToNewDurationType.test.ts` added with the nine
   even-division cases; 9 tests pass. Next: slice 3 (rounding and zero).
+- Slice 3 done: rounding (90 min → 2 h, 1441 min → 2 d, 25 h → 2 d) and zero-in-every-
+  direction cases added; 13 tests pass in `convertToNewDurationType.test.ts`, 4 in
+  `findDurationType.test.ts`. `yarn turbo run type-check --filter=@calcom/web` passes,
+  but it does not compile `packages/lib/*.test.ts` (nothing imports them), so the new
+  test files were not type-checked; a direct `tsc` on `packages/lib` was not permitted
+  in this session. All slices complete.

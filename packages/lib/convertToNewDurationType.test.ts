@@ -38,4 +38,25 @@ describe("convertToNewDurationType", () => {
   it("converts days to hours", () => {
     expect(convertToNewDurationType("days", "hours", 2)).toBe(48);
   });
+
+  it("rounds up when minutes do not divide evenly into hours", () => {
+    expect(convertToNewDurationType("minutes", "hours", 90)).toBe(2);
+  });
+
+  it("rounds up when minutes do not divide evenly into days", () => {
+    expect(convertToNewDurationType("minutes", "days", 1441)).toBe(2);
+  });
+
+  it("rounds up when hours do not divide evenly into days", () => {
+    expect(convertToNewDurationType("hours", "days", 25)).toBe(2);
+  });
+
+  it("returns 0 for a zero value in every direction", () => {
+    const durationTypes = ["minutes", "hours", "days"] as const;
+    for (const prevType of durationTypes) {
+      for (const newType of durationTypes) {
+        expect(convertToNewDurationType(prevType, newType, 0)).toBe(0);
+      }
+    }
+  });
 });
