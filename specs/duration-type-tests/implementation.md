@@ -15,12 +15,6 @@
      - `findDurationType should return days for 0`
    - Verified by: `yarn test packages/lib/findDurationType.test.ts`
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 2. **`convertToNewDurationType` exact conversions** — proves all nine
    `${prevType}_${newType}` map entries are reachable and correct for values
    that divide evenly.
@@ -34,6 +28,13 @@
      - `convertToNewDurationType should convert days to minutes` (2 → 2880)
      - `convertToNewDurationType should convert days to hours` (2 → 48)
    - Verified by: `yarn test packages/lib/convertToNewDurationType.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 3. **`convertToNewDurationType` rounding and zero** — pins the `Math.ceil`
    behaviour recorded in ADR-001 and the zero case in every direction.
    - `packages/lib/convertToNewDurationType.test.ts` (extends slice 2's `describe`)
@@ -64,3 +65,5 @@ yarn test packages/lib/convertToNewDurationType.test.ts
   the first run, as expected for tests that pin existing code. `biome check
   --write` sorted the vitest import and removed the blank line after it, and the
   file keeps biome's formatting. Next: slice 2.
+- Slice 2 done: `convertToNewDurationType.test.ts` added with the seven
+  exact-conversion tests; 7 pass and `biome check` is clean. Next: slice 3.
