@@ -42,7 +42,7 @@ is not.
 
 ## Verify
 
-Both must pass before the PR. Scope them — the full suite is slow here.
+All three must pass before the PR. Scope them — the full suite is slow here.
 
 ```bash
 # Tests for what you touched (yarn test is `TZ=UTC vitest run`)
@@ -50,7 +50,15 @@ yarn test <path/to/file.test.ts>
 
 # Type-check
 yarn turbo run type-check --filter=@calcom/web
+
+# Lint, format and import order for the files you changed; --write applies the safe fixes
+yarn biome check --write <changed files>
 ```
+
+**The pre-commit hook does not cover biome for you.** It runs `biome lint`, which
+leaves import order alone; `biome check` also sorts imports, and a reviewer's
+`biome check` fails an unsorted `import { describe, it, expect }` that the hook
+let through. Run it on the slice's files before committing.
 
 **Most packages have no `type-check` task of their own.** Of the workspace names
 you are likely to reach for, only `@calcom/web` has one (`tsc --pretty --noEmit`);
@@ -70,7 +78,7 @@ yarn turbo run type-check --filter=<pkg> --dry=json   # command must not be "<NO
 `yarn type-check` with no filter runs the whole monorepo and is rarely what you
 want.
 
-If either fails, fix it. Never open a PR on red, and never describe a failing
+If any fails, fix it. Never open a PR on red, and never describe a failing
 check as passing — report the actual output. A check that exited 0 without
 running is not a pass: say it did not run.
 

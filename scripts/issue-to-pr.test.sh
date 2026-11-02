@@ -201,6 +201,17 @@ check "the rules never name .claude/headless-runs" "0" "$(grep -c '\.claude/head
 check "both handoff files are gitignored" "2" \
   "$(git -C "$REPO_ROOT" check-ignore .agent-handoff/pr-body.md .agent-handoff/review.json | wc -l | tr -d ' ')"
 
+# The evidence judges biome with `biome check`, which sorts imports; the
+# pre-commit hook runs `biome lint`, which does not. So the agent has to run the
+# check itself, and its session has to allow it.
+IMPLEMENT_MD="$REPO_ROOT/.claude/skills/implement-task/phases/3-implement.md"
+check "Phase 3 runs biome check --write before committing" "yes" \
+  "$(grep -q '^yarn biome check --write ' "$IMPLEMENT_MD" && echo yes || echo no)"
+check "the fix round verifies as Phase 3 does" "yes" \
+  "$(grep -q 'Verify and commit as in Phase 3' "$HEADLESS_MD" && echo yes || echo no)"
+check "the session allowlist covers it" "yes" \
+  "$(grep -qF 'Bash(yarn biome:*)' "$REPO_ROOT/scripts/issue-to-pr.sh" && echo yes || echo no)"
+
 # --- green path -------------------------------------------------------------
 SB="$(sandbox)"
 check "a clean run exits 0" "0" "$(run "$SB")"
