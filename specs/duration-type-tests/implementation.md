@@ -1,14 +1,8 @@
 # Duration Type Tests Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
-
-## In Progress
-
-## Blocked
-
-## Next Steps
 
 1. **`findDurationType` is pinned** — proves a new `packages/lib/*.test.ts` file
    is picked up by the `@calcom/lib` vitest project and the default-import
@@ -20,6 +14,13 @@
      - `findDurationType should return minutes for a value not divisible by 60` (1, 45, 90)
      - `findDurationType should return days for 0`
    - Verified by: `yarn test packages/lib/findDurationType.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 2. **`convertToNewDurationType` exact conversions** — proves all nine
    `${prevType}_${newType}` map entries are reachable and correct for values
    that divide evenly.
@@ -59,3 +60,7 @@ yarn test packages/lib/convertToNewDurationType.test.ts
   created by the harness.
 - PR description must flag the `Math.ceil` rounding and
   `findDurationType(0) === "days"` as asserted-as-is (ADR-001).
+- Slice 1 done: `findDurationType.test.ts` added; 4 tests pass. They passed on
+  the first run, as expected for tests that pin existing code. `biome check
+  --write` sorted the vitest import and removed the blank line after it, and the
+  file keeps biome's formatting. Next: slice 2.
