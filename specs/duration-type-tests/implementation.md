@@ -1,14 +1,8 @@
 # Duration Type Tests Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
-
-## In Progress
-
-## Blocked
-
-## Next Steps
 
 1. **`findDurationType` is covered** — thinnest path: one new test file runs in the
    `@calcom/lib` vitest project and asserts all four unit-selection cases
@@ -19,6 +13,13 @@
      `returns minutes for a value not divisible by 60`,
      `returns days for 0` (current behaviour, ADR-001)
    - Verified by: `yarn test packages/lib/findDurationType.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 2. **`convertToNewDurationType` converts exactly between every unit pair** — all
    nine `${prevType}_${newType}` closures, with evenly divisible inputs
    - `packages/lib/convertToNewDurationType.test.ts` (new)
@@ -56,3 +57,5 @@ yarn test packages/lib/convertToNewDurationType.test.ts
   `agent/issue-11`; no branch was cut in this phase.
 - Flag in the PR body: `Math.ceil` rounding up and `findDurationType(0)` → `"days"`
   are asserted as-is, not fixed (ADR-001, `future-work.md`).
+- Slice 1 done: `findDurationType.test.ts` added, 4/4 pass. These pin existing
+  behaviour, so there was no red step. Next: slice 2, the nine conversion pairs.
