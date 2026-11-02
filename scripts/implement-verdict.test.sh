@@ -163,6 +163,17 @@ check "a phase with no gate file is red" "1 red 2 agent:needs-help" \
 check "a failed phase session is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence "$PHASED | .phases[2].status = \"failed\"")")"
 
+# --- budgets ----------------------------------------------------------------
+BUDGET='.budget = {cost_cap_usd: 5, spent_usd: 1.2, turn_caps: {"1-research": 30, "2-plan": 15, "3-implement": 80}, exceeded: null}'
+check "a run inside its budget is green" "0 green 0 " "$(verdict "$(evidence "$BUDGET")")"
+check "a spent cost cap is red, with the amounts" "budget: spent \$5.31 of the \$5 cap" \
+  "$(criterion_reason "$BUDGET | .budget.spent_usd = 5.3149 | .budget.exceeded = \"cost\"")"
+check "a turn cap is red, naming the phase and its cap" "budget: 2-plan hit its 15-turn cap" \
+  "$(criterion_reason "$BUDGET | .budget.exceeded = \"turns:2-plan\"")"
+check "a blocked plan is red" "plan: implementation.md says blocked — see its \`## Blocked\`" \
+  "$(criterion_reason '.plan_status = "blocked"')"
+check "a plan in another state is not judged" "0 green 0 " "$(verdict "$(evidence '.plan_status = "complete"')")"
+
 # --- missing evidence fails closed ------------------------------------------
 check "an unresolved merge base is red" "1 red 1 agent:needs-help" \
   "$(verdict "$(evidence '.merge_base = null')")"

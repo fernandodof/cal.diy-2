@@ -7,7 +7,7 @@
 #
 # Usage:
 #   ./scripts/implement-evidence.sh --worktree <dir> --base main \
-#     --issue-json issue.json --phases phases.json [--spec specs/<slug>]
+#     --issue-json issue.json --phases phases.json --budget budget.json [--spec specs/<slug>]
 #
 # Exit codes: 0 = evidence collected, 2 = bad usage/environment.
 #
@@ -19,6 +19,7 @@ WORKTREE=""
 BASE_REF=""
 ISSUE_JSON=""
 PHASES_FILE=""
+BUDGET_FILE=""
 SPEC=""
 LOG_TAIL_LINES=40
 
@@ -33,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     --base) BASE_REF="${2:-}"; shift 2 ;;
     --issue-json) ISSUE_JSON="${2:-}"; shift 2 ;;
     --phases) PHASES_FILE="${2:-}"; shift 2 ;;
+    --budget) BUDGET_FILE="${2:-}"; shift 2 ;;
     --spec) SPEC="${2:-}"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "implement-evidence: unknown argument $1" >&2; usage ;;
@@ -182,6 +184,26 @@ if [[ -n "$SPEC" && -f "$PLAN_FILE" ]]; then
   fi
 fi
 
+# The caps the harness ran under and what the phases spent against them.
+BUDGET="null"
+if [[ -f "$BUDGET_FILE" ]] && jq -e 'type == "object"' "$BUDGET_FILE" >/dev/null 2>&1; then
+  # The cost cap is hit once spending reaches it or a session stopped on its
+  # budget (`error_max_budget_usd`); the CLI checks between turns, so the sum
+  # can land a little over the cap. A turn cap is `error_max_turns`.
+  BUDGET="$(jq -c --argjson phases "$PHASES" '
+    (($phases // []) | map(.cost_usd // 0) | add // 0) as $spent
+    | . + {spent_usd: $spent,
+           exceeded: (if $spent >= .cost_cap_usd or any(($phases // [])[]; .subtype == "error_max_budget_usd") then "cost"
+                      else (first(($phases // [])[] | select(.subtype == "error_max_turns") | "turns:\(.phase)") // null)
+                      end)}' "$BUDGET_FILE")"
+fi
+
+# The plan's own word on where it got to.
+PLAN_STATUS=""
+if [[ -n "$SPEC" && -f "$WORKTREE/$SPEC/implementation.md" ]]; then
+  PLAN_STATUS="$(sed -n -E 's/^## Status: *([a-z-]+)[[:space:]]*$/\1/p' "$WORKTREE/$SPEC/implementation.md" | head -1)"
+fi
+
 # Declared runs also write vitest's JSON report, one per command, which is what
 # acceptance criteria are judged against: an exit code cannot see a skipped test.
 REPORT_DIR="$(mktemp -d)"
@@ -282,6 +304,8 @@ jq -n \
   --argjson declared_commands "$DECLARED_COMMANDS" \
   --argjson rejected_commands "$REJECTED_COMMANDS" \
   --argjson criteria "$CRITERIA" \
+  --argjson budget "$BUDGET" \
+  --arg plan_status "$PLAN_STATUS" \
   '{
     schema: "implement-evidence/1",
     collected_at: $collected_at,
@@ -294,6 +318,8 @@ jq -n \
     spec: (if $spec == "" then null else $spec end),
     agent: $agent,
     phases: $phases,
+    budget: $budget,
+    plan_status: (if $plan_status == "" then null else $plan_status end),
     diff: $diff,
     checks: $checks,
     declared_commands: $declared_commands,
