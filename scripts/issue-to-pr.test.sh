@@ -32,6 +32,10 @@ sandbox() {
   git init --quiet --initial-branch=main "$sb/repo"
   mkdir -p "$sb/repo/scripts" "$sb/bin" "$sb/log"
   cp "$REPO_ROOT"/scripts/{issue-to-pr,headless-task,implement-evidence,implement-verdict}.sh "$sb/repo/scripts/"
+  # TypeScript projects for the per-project type-check: the root (where the fake
+  # agent writes by default), a package, and the app the turbo check covers.
+  mkdir -p "$sb/repo/packages/lib" "$sb/repo/apps/web"
+  echo '{}' | tee "$sb/repo/tsconfig.json" "$sb/repo/packages/lib/tsconfig.json" "$sb/repo/apps/web/tsconfig.json" >/dev/null
   (
     cd "$sb/repo"
     git config user.email test@example.test
@@ -106,9 +110,19 @@ if [[ -n "$phase" && "$mode" != nothing ]]; then
         echo "export const x = 1;" > thing.ts
         echo "it('x', () => {});" > thing.test.ts
       fi
+      if [[ "$mode" == lib ]]; then
+        echo "export const a = 1;" > packages/lib/a.ts
+        echo "it('a', () => {});" > packages/lib/a.test.ts
+      fi
+      [[ "$mode" == web ]] && echo "export const p = 1;" > apps/web/page.ts
       gate 3-implement
+      # FAKE_DRAFT: "none" writes no draft; "closes" has it close the issue itself.
       mkdir -p .agent-handoff
-      printf '## What changed\n\nThe agent draft.\n' > .agent-handoff/pr-body.md ;;
+      case "${FAKE_DRAFT:-}" in
+        none) ;;
+        closes) printf '## What changed\n\nThe agent draft.\n\nCloses #7\n' > .agent-handoff/pr-body.md ;;
+        *) printf '## What changed\n\nThe agent draft.\n' > .agent-handoff/pr-body.md ;;
+      esac ;;
     4)
       # FAKE_REVIEW is the findings JSON; "none" writes no file at all.
       gate 4-review
@@ -149,6 +163,13 @@ FAKE
 echo "$* cwd=$PWD cache=${YARN_CACHE_FOLDER:-}" >> "$FAKE_LOG/yarn.log"
 [[ -n "${FAKE_YARN_FAIL:-}" && "$*" == *"$FAKE_YARN_FAIL"* ]] && { echo "boom"; exit 1; }
 [[ -n "${FAKE_YARN_NO_TESTS:-}" && "$1" == test ]] && { echo "No test files found, exiting with code 0"; exit 0; }
+# yarn tsc: prints FAKE_TSC_OUTPUT (with \n escapes) and exits non-zero if it
+# names an error, or with FAKE_TSC_EXIT.
+if [[ "$1" == tsc ]]; then
+  printf '%b' "${FAKE_TSC_OUTPUT:-}"
+  [[ "${FAKE_TSC_OUTPUT:-}" == *"error TS"* ]] && exit "${FAKE_TSC_EXIT:-2}"
+  exit "${FAKE_TSC_EXIT:-0}"
+fi
 # yarn test: write the JSON report the collector asks for, one test per file,
 # named and graded by FAKE_TEST_NAME / FAKE_TEST_STATUS.
 if [[ "$1" == test ]]; then
@@ -212,6 +233,15 @@ check "the fix round verifies as Phase 3 does" "yes" \
 check "the session allowlist covers it" "yes" \
   "$(grep -qF 'Bash(yarn biome:*)' "$REPO_ROOT/scripts/issue-to-pr.sh" && echo yes || echo no)"
 
+# The evidence type-checks each project the change touched with tsc; the agent
+# runs the same command, so it can see the errors the evidence will.
+check "Phase 3 type-checks the projects it changed" "yes" \
+  "$(grep -q '^yarn tsc --noEmit -p ' "$IMPLEMENT_MD" && echo yes || echo no)"
+check "the session allowlist covers it" "yes" \
+  "$(grep -qF 'Bash(yarn tsc --noEmit -p:*)' "$REPO_ROOT/scripts/issue-to-pr.sh" && echo yes || echo no)"
+check "the rules no longer say web covers packages/lib" "0" \
+  "$(grep -c 'actually covers a change in' "$IMPLEMENT_MD" || true)"
+
 # --- green path -------------------------------------------------------------
 SB="$(sandbox)"
 check "a clean run exits 0" "0" "$(run "$SB")"
@@ -256,7 +286,7 @@ check "the worktree got its own install from this checkout's cache" "1" \
 check "the install ran before the agent" "install" "$(head -1 "$SB/log/yarn.log" | cut -d' ' -f1)"
 check "type-check was re-run by the harness in the worktree" "1" \
   "$(grep -c "^turbo run type-check --filter=@calcom/web cwd=$SB/worktrees/issue-7 " "$SB/log/yarn.log")"
-check "the evidence carries the always-on and the declared checks" "type-check:always,biome:always,test: thing.test.ts:declared" \
+check "the evidence carries the always-on and the declared checks" "type-check:always,type-check: .:always,biome:always,test: thing.test.ts:declared" \
   "$(jq -r '[.checks[] | "\(.name):\(.source)"] | join(",")' "$SB/runs/issue-7/evidence.json")"
 check "the harness ran the declared test in the worktree" "1" \
   "$(grep -c "^test thing.test.ts --reporter.* cwd=$SB/worktrees/issue-7 " "$SB/log/yarn.log")"
@@ -358,7 +388,7 @@ check "the evidence records the caps and what was spent" "5 0.4 30,15,80,30,40" 
   "$(jq -r '.budget | "\(.cost_cap_usd) \(.spent_usd * 10 | round / 10) \(.turn_caps | [.[]] | join(","))"' "$SB/runs/issue-7/evidence.json")"
 check "and each phase's subtype" "success,success,success,success" \
   "$(jq -r '[.phases[].subtype] | join(",")' "$SB/runs/issue-7/evidence.json")"
-check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.4 of \$5; turn caps 1-research 30, 2-plan 15, 3-implement 80, 4-review 30, fix 40 |$' "$SB/runs/issue-7/pr-body.md")"
+check "the body shows the budget" "1" "$(grep -c '^| Budget | \$0.40 of \$5.00; turn caps 1-research 30, 2-plan 15, 3-implement 80, 4-review 30, fix 40 |$' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 SB="$(sandbox)"
@@ -372,7 +402,7 @@ check "a phase that spends the whole cap exits 1" "1" "$(run "$SB" FAKE_COST=6)"
 check "  no phase starts once the cap is spent" "1" "$(wc -l < "$SB/log/claude.argv" | xargs)"
 check "  the partial work still reaches a red draft PR" "1" \
   "$(grep -c '^pr create --draft .*--label agent:needs-help' "$SB/log/gh.log")"
-check "  the body names the cost" "1" "$(grep -c '^- budget: spent \$6 of the \$5 cap$' "$SB/runs/issue-7/pr-body.md")"
+check "  the body names the cost" "1" "$(grep -c '^- budget: spent \$6.00 of the \$5.00 cap$' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 SB="$(sandbox)"
@@ -509,6 +539,75 @@ SB="$(sandbox)"
 check "a clarified issue proceeds" "0" "$(run "$SB" FAKE_ISSUE_LABELS="agent:needs-clarification bug")"
 check "  and sheds its needs-clarification label" "1" \
   "$(grep -c '^issue edit 7 --remove-label agent:needs-clarification$' "$SB/log/gh.log")"
+rm -rf "$SB"
+
+# --- type-check of the changed files ---------------------------------------
+
+# A project's tsc is red on main already (69 errors in packages/lib), so only the
+# lines naming a changed file count.
+tc() { jq -r --arg n "$2" '.checks[] | select(.name == $n) | .'"$3" "$1/runs/issue-7/evidence.json"; }
+
+SB="$(sandbox)"
+check "an error in a changed file exits 1" "1" "$(run "$SB" FAKE_CLAUDE=lib \
+  FAKE_TSC_OUTPUT='packages/lib/a.test.ts(1,7): error TS2322: Type string is not number.\npackages/lib/old.ts(3,1): error TS2304: Cannot find name x.\n')"
+check "  the project's check exited 1" "1" "$(tc "$SB" "type-check: packages/lib" exit_code)"
+check "  it is scoped to the changed files" "changed files" "$(tc "$SB" "type-check: packages/lib" scope)"
+check "  its log keeps the changed file's error only" "packages/lib/a.test.ts(1,7): error TS2322: Type string is not number." \
+  "$(tc "$SB" "type-check: packages/lib" log_tail)"
+check "  the body names it" "1" "$(grep -c '^- check: type-check: packages/lib exited 1$' "$SB/runs/issue-7/pr-body.md")"
+check "  both changed lib files went to one tsc run" "1" "$(grep -c '^tsc --noEmit -p packages/lib/tsconfig.json ' "$SB/log/yarn.log")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "errors only in unchanged files exit 0" "0" "$(run "$SB" FAKE_CLAUDE=lib \
+  FAKE_TSC_OUTPUT='packages/lib/old.ts(3,1): error TS2304: Cannot find name x.\npackages/dayjs/p.ts(1,1): error TS2339: No.\n')"
+check "  the project's check passed" "0" "$(tc "$SB" "type-check: packages/lib" exit_code)"
+check "  its log counts the errors elsewhere" "no errors in 2 changed file(s); 2 error(s) elsewhere in the project" \
+  "$(tc "$SB" "type-check: packages/lib" log_tail)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a changed apps/web file is left to the web check" "0" "$(run "$SB" FAKE_CLAUDE=web)"
+check "  no tsc run for apps/web" "0" "$(grep -c '^tsc .*apps/web' "$SB/log/yarn.log" || true)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "tsc failing with no error lines exits 1" "1" "$(run "$SB" FAKE_TSC_OUTPUT='Cannot read file tsconfig.json.\n' FAKE_TSC_EXIT=1)"
+check "  the check is recorded as not run" "null" "$(tc "$SB" "type-check: ." exit_code)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+git -C "$SB/repo" rm --quiet tsconfig.json
+git -C "$SB/repo" commit --quiet -m "no root project"
+git -C "$SB/repo" push --quiet origin main
+check "a changed .ts file in no project exits 1" "1" "$(run "$SB")"
+check "  it is listed as not covered" "null" "$(tc "$SB" "type-check: not covered" exit_code)"
+check "  with the file named" "thing.test.ts thing.ts" "$(tc "$SB" "type-check: not covered" log_tail | tr '\n' ' ' | sed 's/ $//')"
+rm -rf "$SB"
+
+# --- a readable evidence block ---------------------------------------------
+
+SB="$(sandbox)"
+mkdir -p "$SB/runs/issue-7" && echo "from an older run" > "$SB/runs/issue-7/stale.txt"
+check "a green run for the tidy-ups exits 0" "0" "$(run "$SB")"
+check "the run directory holds only this run's files" "no" "$([[ -f "$SB/runs/issue-7/stale.txt" ]] && echo yes || echo no)"
+check "  the earlier run's files are kept beside it" "1" "$(find "$SB/runs" -path "$SB/runs/issue-7-*/stale.txt" | wc -l | xargs)"
+check "the body shows no report temp path" "0" "$(grep -c 'outputFile' "$SB/runs/issue-7/pr-body.md" || true)"
+check "the evidence keeps the command without it" "yarn test thing.test.ts --reporter=default --reporter=json" \
+  "$(jq -r '.checks[] | select(.name == "test: thing.test.ts") | .command' "$SB/runs/issue-7/evidence.json")"
+check "phase costs show to the cent" "4" "$(grep -cE '^\| [0-9a-z-]+ \| completed \| continue \| [0-9]+ \| \$[0-9]+\.[0-9]{2} \|$' "$SB/runs/issue-7/pr-body.md")"
+check "the body closes the issue once" "1" "$(grep -c '^Closes #7$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" FAKE_DRAFT=closes >/dev/null
+check "a draft that closes the issue itself is not doubled" "1" "$(grep -c '^Closes #7$' "$SB/runs/issue-7/pr-body.md")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" FAKE_DRAFT=none >/dev/null
+check "a missing draft points at Phase 3's gate" "1" \
+  "$(grep -cF 'look in `specs/thing/gates/3-implement.md`' "$SB/runs/issue-7/pr-body.md")"
 rm -rf "$SB"
 
 # --- red path ---------------------------------------------------------------

@@ -42,14 +42,18 @@ is not.
 
 ## Verify
 
-All three must pass before the PR. Scope them — the full suite is slow here.
+All of these must pass before the PR. Scope them — the full suite is slow here.
 
 ```bash
 # Tests for what you touched (yarn test is `TZ=UTC vitest run`)
 yarn test <path/to/file.test.ts>
 
-# Type-check
+# Type-check what web imports
 yarn turbo run type-check --filter=@calcom/web
+
+# Type-check each project you changed outside apps/web — the nearest directory
+# with a tsconfig.json — and look only at the errors in your files
+yarn tsc --noEmit -p <project>/tsconfig.json
 
 # Lint, format and import order for the files you changed; --write applies the safe fixes
 yarn biome check --write <changed files>
@@ -63,8 +67,11 @@ let through. Run it on the slice's files before committing.
 **Most packages have no `type-check` task of their own.** Of the workspace names
 you are likely to reach for, only `@calcom/web` has one (`tsc --pretty --noEmit`);
 `@calcom/features`, `@calcom/lib` and `@calcom/trpc` do not. `@calcom/web`
-compiles what it imports, so it is the check that actually covers a change in
-those packages.
+compiles what it imports, so it covers a change in those packages only where web
+imports it — never a new test file. Hence the `tsc` line above. That project's
+`tsc` is not clean on `main` (69 errors in `packages/lib`, many in tests and in
+`packages/dayjs`), so its exit code tells you nothing: an error in a file you
+changed is yours to fix, and the rest are not.
 
 This matters because **turbo exits 0 for a task that does not exist.** A filter
 naming a package without a `type-check` script prints `Tasks: N successful` and

@@ -1021,3 +1021,135 @@ Two non-test files; about 15 changed lines.
 - Changing the pre-commit hook to `biome check`: that is an upstream Cal.com
   file, and upstream conventions beat ours.
 - Type-check coverage (#43).
+
+---
+
+# Increment: type-check the files the change touched (#43)
+
+Tracks [#43](https://github.com/fernandodof/cal.diy-2/issues/43), including the
+evidence tidy-ups folded in from #45. Found by all three #33 smoke runs on #11.
+
+## Overview
+
+Besides the `@calcom/web` type-check, the collector runs `tsc --noEmit` once
+for each TypeScript project a changed `.ts`/`.tsx` file belongs to. It judges
+only the errors reported in the changed files. The agent gets an allowlisted way
+to run the same command, and the Verify step tells it to. The tidy-ups make the
+evidence block render to the cent, drop temp paths, keep a run directory to the
+current run's files, and point the no-draft fallback at the gate file.
+
+## Problem Statement
+
+`yarn turbo run type-check --filter=@calcom/web` compiles only what web imports
+(`scripts/implement-evidence.sh:225`). New `packages/lib/*.test.ts` files are
+imported by nothing, so all three runs reported type-check **pass** for test
+files that were never type-checked. The agent's own
+`yarn tsc --noEmit -p tsconfig.json` was denied every time.
+
+Probes on `main` (`8ed5a0abe2`):
+
+- `yarn tsc --noEmit -p packages/lib/tsconfig.json` takes 5 s and exits 2 with
+  **69 existing errors**: 37 in `packages/lib` (27 of them in test files), 31 in
+  `packages/dayjs` (pulled in through imports), and 1 in `packages/emails`.
+  `packages/features` takes 12 s with 89 errors; `trpc` takes 10 s and
+  `app-store` 9 s, with 0 errors each. **A package's exit code therefore can't
+  be the verdict**: it is red on `main` already.
+- The project includes its test files (`"include": ["."]`). A scratch
+  `packages/lib/zzProbe.test.ts` with `const x: number = "a"` is reported as
+  `packages/lib/zzProbe.test.ts(1,7): error TS2322: …`, a path relative to the
+  repo root when `tsc` runs from there. Matching on changed paths is therefore
+  exact.
+- Every `packages/*` and `apps/*` directory either has a `tsconfig.json` or
+  holds sub-packages that do (`embeds`, `platform`, `config`, …). There is no
+  root `tsconfig.json`.
+
+## Technical Design
+
+### The check
+
+For each changed `.ts`/`.tsx` file (added or modified, as `CHANGED_FILES`
+already holds), find the nearest ancestor directory with a `tsconfig.json`.
+Then:
+
+- **`apps/web`**: skip it. The existing `@calcom/web` check covers it.
+- **Any other project**: run it once, from the worktree root:
+  `yarn tsc --noEmit -p <dir>/tsconfig.json`. Keep the error lines whose path is
+  one of the changed files.
+- **No `tsconfig.json` up to the repo root**: the file is not covered.
+
+Each project becomes one check, named `type-check: <dir>`, with `source:
+"always"`:
+
+| Field | Value |
+|---|---|
+| `command` | the `tsc` command above |
+| `exit_code` | `0` if the changed files have no errors, `1` if they have any, `null` if `tsc` printed no `error TS` line yet exited non-zero (it crashed, or never ran) |
+| `log_tail` | the error lines for the changed files; otherwise one line: `no errors in N changed file(s); M error(s) elsewhere in the project` |
+| `scope` *(new, additive)* | `"changed files"` |
+
+Files with no project at all become one check, `type-check: not covered`, with
+`exit_code: null` and the file list. That makes it red under the existing rule
+that a check that did not run is red. That's honest, and so far rare: only
+scripts outside every package.
+
+The verdict needs no new rule. An `exit_code` of 1 is already red as "check:
+type-check: packages/lib exited 1", and `null` as not run.
+
+### The agent
+
+- The allowlist gains `Bash(yarn tsc --noEmit -p:*)`.
+- `phases/3-implement.md` Verify adds that command for each project the slice
+  touched. It also corrects the paragraph that says `@calcom/web` covers changes
+  in `packages/lib`: it covers only what web imports. The agent checks only that
+  its own files have no errors; the existing errors elsewhere are not its job.
+
+### Tidy-ups (from #45)
+
+- Costs render to the cent in the evidence block (`$0.27`, not `$0.27312559999999997`).
+- Check commands in the evidence show no temp paths. The `--outputFile.json=…`
+  argument is dropped from the displayed command; the command that runs is
+  unchanged.
+- At the start of a run, an existing run directory is moved aside as
+  `issue-N-<UTC timestamp>`, so the new directory holds only that run's files.
+  Today `phases.jsonl` is emptied, but stale `result.json` and `task.txt` files
+  from older `headless-task.sh` runs survive. The old directory is moved rather
+  than deleted because the new run may still be refused, for example at "branch
+  already exists", and its logs are the only record of the earlier run.
+- `Closes #N` appears once, even when the agent's draft has its own (seen in
+  run 2).
+- The no-draft fallback names the gate file the agent's draft may be in, when
+  there is one.
+
+### Files
+
+| File | Change |
+|---|---|
+| `scripts/implement-evidence.sh` | per-project `tsc`, filtered to changed files; `scope`; no temp path in the displayed command |
+| `scripts/issue-to-pr.sh` | allowlist; empty the run dir; fallback text |
+| `scripts/implement-verdict.sh` | costs to the cent |
+| `.claude/skills/implement-task/phases/3-implement.md` | the `tsc` step; the corrected coverage paragraph |
+| `docs/harness/implement-evidence-schema.md` | the per-project checks, `scope` |
+| `scripts/issue-to-pr.test.sh`, `scripts/implement-verdict.test.sh` | tests |
+
+Five non-test files.
+
+## Edge Cases
+
+- **A changed file that already had errors on the base**: its errors count, so
+  it is red. The change touched it, so it is the change's to fix or to explain.
+  Telling old errors from new would mean a second `tsc` at the merge base; not
+  done in this increment.
+- **A deleted file**: not in `CHANGED_FILES` (`--diff-filter=d`), so not checked.
+- **`.mts`/`.cts`/`.js`**: not type-checked; only `.ts`/`.tsx` files are mapped
+  (a `.d.ts` ends in `.ts`, so it is).
+- **Two changed files in one project**: one `tsc` run, both filtered.
+- **`tsc` itself is slow for a large project**: about 12 s worst case measured
+  (`features`). It runs once per project, not per file.
+
+## Out of Scope
+
+- Fixing the 69 existing errors in `packages/lib` and `packages/dayjs`, or the
+  89 in `packages/features`.
+- Comparing against the base to tell old errors from new.
+- `apps/api` needs nothing special: it has no tsconfig at its root, and its
+  sub-apps have their own.

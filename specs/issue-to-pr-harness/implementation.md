@@ -216,11 +216,52 @@
       has `Bash(yarn biome:*)`. All existing checks still pass. The real check
       is the #11 rerun after merge.
 
+21. **A type error in a changed file that web doesn't import turns the verdict
+    red**. This proves the collector type-checks each touched project and judges
+    only the changed files: a clean file is green even though the project has
+    other errors, an error in the file is red, and a file with no project is
+    "not covered".
+    - `scripts/implement-evidence.sh`, `docs/harness/implement-evidence-schema.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. The fake `yarn tsc` prints
+      error lines. Checks: one error in a changed file → `type-check:
+      packages/lib` exited 1 and the PR is red with that line; errors only in
+      other files → exit 0, green, with the "elsewhere" count; two changed files
+      in one project → one `tsc` run; a changed `apps/web` file → no extra run;
+      a `.ts` file with no project → `type-check: not covered`, red; a `tsc` that
+      exits non-zero with no error lines → not run.
+
+22. **The agent can type-check what it changed**. This proves the rules tell
+    Phase 3 to run the same `tsc` command and that the session allows it.
+    - `scripts/issue-to-pr.sh` (allowlist),
+      `.claude/skills/implement-task/phases/3-implement.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. Phase 3's rules name
+      `yarn tsc --noEmit -p`; the allowlist has `Bash(yarn tsc --noEmit -p:*)`;
+      the rules no longer say web covers `packages/lib`.
+
+
+
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+23. **The evidence reads cleanly** (#45). Costs show to the cent, commands show
+    no temp paths, the run directory holds only the current run's files, and the
+    no-draft fallback names the gate file.
+    - `scripts/implement-verdict.sh`, `scripts/implement-evidence.sh`,
+      `scripts/issue-to-pr.sh`
+    - Verified by: `./scripts/implement-verdict.test.sh` (a fixture with costs
+      like `0.27312559999999997` renders as `$0.27`) and
+      `./scripts/issue-to-pr.test.sh` (no `/tmp`/`/var` paths in the body; a
+      stale file in the run directory is gone after a run; the fallback names
+      `gates/3-implement.md`).
 
 ## Session Notes
 
@@ -347,3 +388,22 @@
   the changed files and says why the hook is not enough. The fix round verifies
   as Phase 3 does (200 orchestrator, 43 verdict checks; both exit 0). The real
   check is re-running #11 after merge.
+- #43 planned on `fix/type-check-changed-files`, cut from `origin/main` after
+  #55 merged. Base branch: `main` (confirmed at the Phase 2 gate). One PR, three
+  slices. Review-size check: 5 non-test files.
+- Slice 21 done: the collector runs `yarn tsc --noEmit -p <project>/tsconfig.json`
+  once for each project a changed `.ts`/`.tsx` file belongs to, and judges only
+  the changed files' error lines. `apps/web` is left to the turbo check, and files
+  with no project are "not covered" (216 orchestrator checks, exit 0; verdict
+  suite unchanged, exit 0). Next: slice 22, letting the agent run the same check.
+- Slice 22 done: the allowlist gains `Bash(yarn tsc --noEmit -p:*)`, and Phase 3's
+  Verify names the per-project `tsc`. The paragraph saying web covers
+  `packages/lib` is corrected (219 orchestrator checks, exit 0). A real-session
+  probe (Haiku) ran `yarn tsc --noEmit -p packages/lib/tsconfig.json` under that
+  rule; its compound form with `; echo` was denied. Next: slice 23, the tidy-ups.
+- Slice 23 done: costs render to the cent everywhere (`usd` in the verdict),
+  and displayed commands drop the `--outputFile.json` temp path. An earlier run
+  directory is moved aside as `issue-N-<timestamp>` rather than deleted, because
+  a refused re-run would otherwise erase the only logs. `Closes #N` appears once,
+  and a missing draft points at `gates/3-implement.md` (228 orchestrator, 44
+  verdict checks; both exit 0).

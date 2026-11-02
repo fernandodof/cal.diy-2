@@ -72,6 +72,9 @@ RUN_ID="issue-$ISSUE"
 RUN_DIR="$OUT_DIR/$RUN_ID"
 BRANCH="agent/issue-$ISSUE"
 WORKTREE="$WORKTREE_DIR/$RUN_ID"
+# A run directory holds one run: older files beside the new ones read as this
+# run's. An earlier run's is kept beside it, since this one may yet be refused.
+[[ -d "$RUN_DIR" ]] && mv "$RUN_DIR" "$RUN_DIR-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$RUN_DIR"
 
 gh issue view "$ISSUE" --json number,title,body,url,author,labels > "$RUN_DIR/issue.json" 2>/dev/null || {
@@ -203,7 +206,7 @@ echo "issue-to-pr: installing dependencies in the worktree" >&2
 # #11 run was denied. Pushing and opening PRs are the harness's, and the deny list
 # keeps them that way even if the allow list or permission mode is loosened.
 ALLOWED_TOOLS="Read,Edit,Write,Glob,Grep,Skill"
-ALLOWED_TOOLS+=",Bash(yarn test:*),Bash(yarn biome:*),Bash(yarn turbo run type-check:*)"
+ALLOWED_TOOLS+=",Bash(yarn test:*),Bash(yarn biome:*),Bash(yarn turbo run type-check:*),Bash(yarn tsc --noEmit -p:*)"
 ALLOWED_TOOLS+=",Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git add:*),Bash(git commit:*)"
 ALLOWED_TOOLS+=",Bash(ls:*),Bash(cat:*),Bash(grep:*),Bash(find:*),Bash(gh issue view:*)"
 DISALLOWED_TOOLS="Bash(git push:*),Bash(gh pr:*)"
@@ -322,11 +325,17 @@ fi
 # --- pull request -----------------------------------------------------------
 git -C "$WORKTREE" push --quiet -u origin "$BRANCH"
 
+DRAFT="$WORKTREE/.agent-handoff/pr-body.md"
 {
-  echo "Closes #$ISSUE"
-  echo
-  cat "$WORKTREE/.agent-handoff/pr-body.md" 2>/dev/null \
-    || echo "_The agent left no PR body draft; the evidence below is all there is._"
+  # The draft may close the issue itself; GitHub needs it said once.
+  grep -qx "Closes #$ISSUE" "$DRAFT" 2>/dev/null || { echo "Closes #$ISSUE"; echo; }
+  if [[ -f "$DRAFT" ]]; then
+    cat "$DRAFT"
+  elif [[ -n "$SPEC" && -f "$WORKTREE/$SPEC/gates/3-implement.md" ]]; then
+    echo "_The agent left no PR body draft in \`.agent-handoff/pr-body.md\`. If it wrote one elsewhere, look in \`$SPEC/gates/3-implement.md\`._"
+  else
+    echo "_The agent left no PR body draft; the evidence below is all there is._"
+  fi
   echo
   if [[ -n "$SPEC" ]]; then
     echo "### Gates"

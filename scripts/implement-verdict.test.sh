@@ -175,8 +175,11 @@ check "findings alone are not red" "0 green 0 " "$(verdict "$(evidence "$PHASED 
 # --- budgets ----------------------------------------------------------------
 BUDGET='.budget = {cost_cap_usd: 5, spent_usd: 1.2, turn_caps: {"1-research": 30, "2-plan": 15, "3-implement": 80}, exceeded: null}'
 check "a run inside its budget is green" "0 green 0 " "$(verdict "$(evidence "$BUDGET")")"
-check "a spent cost cap is red, with the amounts" "budget: spent \$5.31 of the \$5 cap" \
+check "a spent cost cap is red, with the amounts" "budget: spent \$5.31 of the \$5.00 cap" \
   "$(criterion_reason "$BUDGET | .budget.spent_usd = 5.3149 | .budget.exceeded = \"cost\"")"
+check "a phase cost shows to the cent" "1" \
+  "$("$VERDICT" <<<"$(evidence "$BUDGET | .phases = [{phase: \"1-research\", status: \"completed\", turns: 5, cost_usd: 0.27312559999999997, outcome: \"continue\"}]")" \
+    | jq -r '.evidence_block' | grep -c '^| 1-research | completed | continue | 5 | \$0.27 |$')"
 check "a turn cap is red, naming the phase and its cap" "budget: 2-plan hit its 15-turn cap" \
   "$(criterion_reason "$BUDGET | .budget.exceeded = \"turns:2-plan\"")"
 check "a blocked plan is red" "plan: implementation.md says blocked — see its \`## Blocked\`" \
