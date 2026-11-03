@@ -14,15 +14,16 @@
    - `packages/features/bookings/lib/service/RegularBookingService.ts` (lines 1219–1221, used at 1238) — replace the inline split; keep the `.some(...)` check
    - Verified by: `yarn test packages/features/bookings/lib/handleNewBooking/test/booking-validations.test.ts` (existing suite stays green), plus `yarn tsc --noEmit -p packages/features/tsconfig.json` (errors in changed files only — the project is not clean on `main`)
 
+3. **Adding a guest to an existing booking uses the shared parse** — proves the tRPC `addGuests` path
+   - `packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts` — delete the local `getBlacklistedEmails()` (lines 166–170) and call the helper at line 207
+   - Verified by: `yarn tsc --noEmit -p packages/trpc/tsconfig.json` (errors in changed files only); no existing `addGuests` test file (checked `packages/trpc/server/routers/viewer/bookings/`)
+
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
 
-3. **Adding a guest to an existing booking uses the shared parse** — proves the tRPC `addGuests` path
-   - `packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts` — delete the local `getBlacklistedEmails()` (lines 166–170) and call the helper at line 207
-   - Verified by: `yarn tsc --noEmit -p packages/trpc/tsconfig.json` (errors in changed files only); no existing `addGuests` test file (checked `packages/trpc/server/routers/viewer/bookings/`)
 4. **Email-verification check uses the shared parse and keeps the session owner exempt** — proves the public tRPC path
    - `packages/trpc/server/routers/publicViewer/checkIfUserEmailVerificationRequired.handler.ts` (lines 23–34) — replace the inline split; compare `blacklistedEmail !== userSessionEmail?.toLowerCase()` (design.md › Edge Cases)
    - Verified by: `yarn tsc --noEmit -p packages/trpc/tsconfig.json` (errors in changed files only); no existing test for this handler (checked `packages/trpc/server/routers/publicViewer/`)
@@ -42,3 +43,4 @@ yarn test packages/features/bookings/lib/handleNewBooking/test/booking-validatio
 - Slices 3 and 4 have no existing test file to extend; design.md declares no new tests for them, so they rely on the helper's unit tests plus type-check. Adding handler tests would be scope beyond design.md.
 - Slice 1 done: helper + unit tests, `checkIfBookerEmailIsBlocked` uses it. New booking test failed first (booking was accepted), passes now; 20/20 across both files. `biome check --write` also sorted the existing imports in `booking-validations.test.ts` and added `import process from "node:process"` (the pattern the call sites already use). Next: slice 2, `RegularBookingService`.
 - Slice 2 done: `RegularBookingService` uses the helper. booking-validations 15/15; `tsc -p packages/features` reports no errors in the changed files (the project's other errors are pre-existing). Next: slice 3, `addGuests.handler.ts`.
+- Slice 3 done: local `getBlacklistedEmails()` removed, handler calls the helper; the now-unused `import process from "node:process"` removed too. `tsc -p packages/trpc` reports 0 errors (`--listFiles` confirms the changed files are included). Next: slice 4, `checkIfUserEmailVerificationRequired.handler.ts`.

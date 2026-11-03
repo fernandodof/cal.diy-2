@@ -1,4 +1,3 @@
-import process from "node:process";
 import { getUsersCredentialsIncludeServiceAccountKey } from "@calcom/app-store/delegationCredential";
 import { eventTypeMetaDataSchemaWithTypedApps } from "@calcom/app-store/zod-utils";
 import dayjs from "@calcom/dayjs";
@@ -12,6 +11,7 @@ import {
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { getTranslation } from "@calcom/i18n/server";
 import { extractBaseEmail } from "@calcom/lib/extract-base-email";
+import { getBlacklistedGuestEmails } from "@calcom/lib/getBlacklistedGuestEmails";
 import { parseRecurringEvent } from "@calcom/lib/isRecurringEvent";
 import logger from "@calcom/lib/logger";
 import { prisma } from "@calcom/prisma";
@@ -163,12 +163,6 @@ function deduplicateGuestEmails(guests: string[]): string[] {
   });
 }
 
-function getBlacklistedEmails(): string[] {
-  return process.env.BLACKLISTED_GUEST_EMAILS
-    ? process.env.BLACKLISTED_GUEST_EMAILS.split(",").map((email) => email.toLowerCase())
-    : [];
-}
-
 async function getEmailVerificationRequirements(guestEmails: string[]): Promise<Map<string, boolean>> {
   const userRepo = new UserRepository(prisma);
   const guestUsers = await userRepo.findManyByEmailsWithEmailVerificationSettings({
@@ -204,7 +198,7 @@ export async function sanitizeAndFilterGuests(
 > {
   const guestEmails = guests.map((guest) => guest.email);
   const deduplicatedGuests = deduplicateGuestEmails(guestEmails);
-  const blacklistedGuestEmails = getBlacklistedEmails();
+  const blacklistedGuestEmails = getBlacklistedGuestEmails();
   const guestEmailsLowerCase = deduplicatedGuests.map((email) => extractBaseEmail(email).toLowerCase());
   const emailToRequiresVerification = await getEmailVerificationRequirements(guestEmailsLowerCase);
 
