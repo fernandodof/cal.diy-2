@@ -36,7 +36,8 @@ copied from what the agent said about its own work. Facts it cannot reach are
     {
       "phase": "1-research",             // "1-research" | "2-plan" | "3-implement" | "4-review" | "fix"
       "status": "completed",             // the session's summary.json; null if it left none
-      "subtype": "success",              // the CLI's; error_max_turns / error_max_budget_usd are hit caps
+      "subtype": "success",              // the CLI's; error_max_turns / error_max_budget_usd are hit caps;
+                                         // "earlier_run" for a phase a re-run skipped (turns and cost null)
       "turns": 12,
       "cost_usd": 0.4,
       "outcome": "continue"              // the gate file's first line; null if there is none
@@ -168,6 +169,13 @@ its cap — a real probe spent $0.0017 against a $0.0001 budget. `exceeded` is
 `"cost"` when spending reached the cap or a session stopped with subtype
 `error_max_budget_usd`, else `"turns:<phase>"` for the first phase whose subtype
 is `error_max_turns`.
+
+**`phases[].subtype: "earlier_run"`** marks a phase that an earlier run of the
+same branch finished, so this run skipped it. Its gate said `Outcome: continue`.
+A review also needs its `review.json` and no commits after it, unless the fix
+round ran. A fix round counts once it has a gate file. The record says
+`completed` and `continue`, with `turns` and `cost_usd` null: the cost cap is
+per run, and an earlier run's spending isn't this run's.
 
 **`plan_status`** is read as a fact; the harness also stops the sequence on
 `blocked`, whatever the gate file's `Outcome` says.

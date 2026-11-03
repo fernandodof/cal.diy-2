@@ -194,14 +194,39 @@ fi
 
 # --- worktree ---------------------------------------------------------------
 git -C "$REPO_ROOT" fetch --quiet origin "$BASE_REF"
-if git -C "$REPO_ROOT" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null \
-  || git -C "$REPO_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-  echo "issue-to-pr: branch $BRANCH already exists; resuming a run is not supported yet" >&2
-  exit 2
-fi
+# A branch that exists is a run to continue: its gate files say how far it got.
+RESUMING=false
+LOCAL_BRANCH=false
+REMOTE_BRANCH=false
+git -C "$REPO_ROOT" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null && LOCAL_BRANCH=true
+git -C "$REPO_ROOT" ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1 && REMOTE_BRANCH=true
 mkdir -p "$WORKTREE_DIR"
-git -C "$REPO_ROOT" worktree add --quiet -b "$BRANCH" "$WORKTREE" "origin/$BASE_REF"
-echo "issue-to-pr: worktree $WORKTREE on $BRANCH" >&2
+if [[ "$LOCAL_BRANCH" == true || "$REMOTE_BRANCH" == true ]]; then
+  RESUMING=true
+  if [[ "$REMOTE_BRANCH" == true ]]; then
+    git -C "$REPO_ROOT" fetch --quiet origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+    [[ "$LOCAL_BRANCH" == true ]] || git -C "$REPO_ROOT" branch --quiet "$BRANCH" "origin/$BRANCH"
+  fi
+  # A worktree directory someone deleted is still registered until pruned.
+  git -C "$REPO_ROOT" worktree prune
+  if [[ -d "$WORKTREE" ]]; then
+    [[ "$(git -C "$WORKTREE" rev-parse --abbrev-ref HEAD 2>/dev/null)" == "$BRANCH" ]] || {
+      echo "issue-to-pr: $WORKTREE exists but is not on $BRANCH" >&2
+      exit 2
+    }
+  else
+    git -C "$REPO_ROOT" worktree add --quiet "$WORKTREE" "$BRANCH"
+  fi
+  # Take in what a person pushed; never rewrite what they pushed.
+  if [[ "$REMOTE_BRANCH" == true ]] && ! git -C "$WORKTREE" merge --quiet --ff-only "origin/$BRANCH" >/dev/null 2>&1; then
+    echo "issue-to-pr: $BRANCH has diverged from origin/$BRANCH; reconcile them, then re-run" >&2
+    exit 2
+  fi
+  echo "issue-to-pr: resuming $BRANCH in $WORKTREE" >&2
+else
+  git -C "$REPO_ROOT" worktree add --quiet -b "$BRANCH" "$WORKTREE" "origin/$BASE_REF"
+  echo "issue-to-pr: worktree $WORKTREE on $BRANCH" >&2
+fi
 
 # The worktree needs its own install. Workspace packages are linked relatively
 # (node_modules/@calcom/* -> ../../packages/*), so borrowing this checkout's
@@ -241,8 +266,34 @@ resolve_spec() {
 # One session per phase, each reading only the previous phase's handoff file.
 # Every session's summary goes into the evidence as a fact; whether the sequence
 # should have stopped is judged there, not here.
+# Standards findings and scope creep are the reviewer's to weigh; a spec
+# requirement that is missing or wrong is the one thing worth a second pass.
+review_wants_fix() {
+  jq -e '.findings | any(.axis == "spec" and (.kind == "missing" or .kind == "wrong"))' \
+    "$WORKTREE/.agent-handoff/review.json" >/dev/null 2>&1
+}
+
+# Whether a phase finished in an earlier run of this branch. The fix round runs
+# once per issue, whatever its outcome; a review stands until something is
+# committed after it, except the fix round's own commits, which never get one.
+phase_done() {
+  local gate="$WORKTREE/$SPEC/gates/$1.md" reviewed
+  [[ -n "$SPEC" && -f "$gate" ]] || return 1
+  [[ "$1" == fix ]] && return 0
+  [[ "$(head -1 "$gate")" == "Outcome: continue" ]] || return 1
+  [[ "$1" == 4-review ]] || return 0
+  jq -e '.findings | type == "array"' "$WORKTREE/.agent-handoff/review.json" >/dev/null 2>&1 || return 1
+  [[ -f "$WORKTREE/$SPEC/gates/fix.md" ]] && return 0
+  reviewed="$(git -C "$WORKTREE" log -1 --format=%H -- "$SPEC/gates/4-review.md")"
+  [[ -n "$reviewed" && "$(git -C "$WORKTREE" rev-list --count "$reviewed..HEAD")" -eq 0 ]]
+}
+
+[[ "$RESUMING" == true ]] && SPEC="$(resolve_spec || true)"
 : > "$RUN_DIR/phases.jsonl"
 n=0
+# A resumed run skips the phases already done, up to the first that is not;
+# from there every phase runs, since each reads the one before it.
+SKIPPING="$RESUMING"
 # The fix round is not in the list: it runs at most once, after the review, and
 # only when the review found a requirement missing or wrong.
 FIX_PENDING=false
@@ -253,6 +304,15 @@ for phase in 1-research 2-plan 3-implement 4-review fix; do
   else
     n=$((n + 1))
   fi
+  if { [[ "$SKIPPING" == true ]] || [[ "$phase" == fix ]]; } && phase_done "$phase"; then
+    echo "issue-to-pr: phase $phase was done in an earlier run" >&2
+    jq -nc --arg phase "$phase" \
+      '{phase: $phase, status: "completed", subtype: "earlier_run", turns: null, cost_usd: null, outcome: "continue"}' \
+      >> "$RUN_DIR/phases.jsonl"
+    [[ "$phase" == 4-review ]] && review_wants_fix && FIX_PENDING=true
+    continue
+  fi
+  SKIPPING=false
   TASK="/implement-task --headless --phase $n --base $BASE_REF $ISSUE_URL${SPEC:+ --spec $SPEC}"
   # The issue as the trust gate approved it, for the phases that read the issue.
   if [[ "$phase" == 1-research || "$phase" == 4-review ]]; then
@@ -297,12 +357,7 @@ for phase in 1-research 2-plan 3-implement 4-review fix; do
     echo "issue-to-pr: stopping after phase $phase (session $(jq -r '.status // "missing"' "$RUN_DIR/$phase/summary.json" 2>/dev/null || echo missing), gate ${OUTCOME:-missing})" >&2
     break
   fi
-  # Standards findings and scope creep are the reviewer's to weigh; a spec
-  # requirement that is missing or wrong is the one thing worth a second pass.
-  if [[ "$phase" == 4-review ]] && jq -e '.findings | any(.axis == "spec" and (.kind == "missing" or .kind == "wrong"))' \
-    "$WORKTREE/.agent-handoff/review.json" >/dev/null 2>&1; then
-    FIX_PENDING=true
-  fi
+  [[ "$phase" == 4-review ]] && review_wants_fix && FIX_PENDING=true
   # A plan marked blocked is a stop on its own, whatever the gate file says.
   if [[ -n "$SPEC" ]] && grep -qE '^## Status: blocked[[:space:]]*$' "$WORKTREE/$SPEC/implementation.md" 2>/dev/null; then
     echo "issue-to-pr: stopping after phase $phase — $SPEC/implementation.md says blocked" >&2
@@ -366,15 +421,37 @@ DRAFT="$WORKTREE/.agent-handoff/pr-body.md"
   echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 } > "$RUN_DIR/pr-body.md"
 
-LABEL_ARGS=()
-while IFS= read -r label; do
-  [[ -n "$label" ]] && LABEL_ARGS+=(--label "$label")
-done < <(jq -r '.labels[]' "$RUN_DIR/verdict.json")
+# A branch with an open PR keeps it: only the evidence block is replaced, since
+# the rest of the body may have been edited by hand since the PR was opened.
+OPEN_PR="$(gh pr list --head "$BRANCH" --state open --json number,url,body,labels | jq -c '.[0] // empty')"
+if [[ -n "$OPEN_PR" ]]; then
+  jq -j --arg block "$(jq -r '.evidence_block' "$RUN_DIR/verdict.json")" '
+    "<!-- evidence:start -->" as $start | "<!-- evidence:end -->" as $end
+    | (.body | split($start)) as $parts
+    | if ($parts | length) > 1 and ($parts[1:] | join($start) | contains($end)) then
+        ($parts[1:] | join($start) | split($end)) as $rest
+        | $parts[0] + $block + ($rest[1:] | join($end))
+      else .body + "\n\n" + $block end' <<<"$OPEN_PR" > "$RUN_DIR/pr-body.md"
+  LABEL_ARGS=()
+  if [[ "$VERDICT" == red ]]; then
+    LABEL_ARGS+=(--add-label agent:needs-help)
+  elif jq -e '.labels // [] | any(.name == "agent:needs-help")' <<<"$OPEN_PR" >/dev/null; then
+    LABEL_ARGS+=(--remove-label agent:needs-help)
+  fi
+  gh pr edit "$(jq -r '.number' <<<"$OPEN_PR")" --body-file "$RUN_DIR/pr-body.md" \
+    ${LABEL_ARGS[@]+"${LABEL_ARGS[@]}"} >/dev/null
+  PR_URL="$(jq -r '.url' <<<"$OPEN_PR")"
+else
+  LABEL_ARGS=()
+  while IFS= read -r label; do
+    [[ -n "$label" ]] && LABEL_ARGS+=(--label "$label")
+  done < <(jq -r '.labels[]' "$RUN_DIR/verdict.json")
 
-PR_URL="$(gh pr create --draft --base "$BASE_REF" --head "$BRANCH" \
-  --title "$(jq -r '.title' "$RUN_DIR/issue.json")" \
-  --body-file "$RUN_DIR/pr-body.md" \
-  ${LABEL_ARGS[@]+"${LABEL_ARGS[@]}"})"
+  PR_URL="$(gh pr create --draft --base "$BASE_REF" --head "$BRANCH" \
+    --title "$(jq -r '.title' "$RUN_DIR/issue.json")" \
+    --body-file "$RUN_DIR/pr-body.md" \
+    ${LABEL_ARGS[@]+"${LABEL_ARGS[@]}"})"
+fi
 
 echo "issue-to-pr: $VERDICT — $PR_URL" >&2
 echo "$PR_URL"

@@ -180,6 +180,9 @@ check "a spent cost cap is red, with the amounts" "budget: spent \$5.31 of the \
 check "a phase cost shows to the cent" "1" \
   "$("$VERDICT" <<<"$(evidence "$BUDGET | .phases = [{phase: \"1-research\", status: \"completed\", turns: 5, cost_usd: 0.27312559999999997, outcome: \"continue\"}]")" \
     | jq -r '.evidence_block' | grep -c '^| 1-research | completed | continue | 5 | \$0.27 |$')"
+check "a phase done in an earlier run says so, with no cost" "1" \
+  "$("$VERDICT" <<<"$(evidence "$BUDGET | .phases = [{phase: \"1-research\", status: \"completed\", subtype: \"earlier_run\", turns: null, cost_usd: null, outcome: \"continue\"}]")" \
+    | jq -r '.evidence_block' | grep -c '^| 1-research | earlier run | continue | – | – |$')"
 check "a turn cap is red, naming the phase and its cap" "budget: 2-plan hit its 15-turn cap" \
   "$(criterion_reason "$BUDGET | .budget.exceeded = \"turns:2-plan\"")"
 check "a blocked plan is red" "plan: implementation.md says blocked — see its \`## Blocked\`" \

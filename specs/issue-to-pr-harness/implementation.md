@@ -242,11 +242,37 @@
 
 
 
+
+
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
+25. **A re-run resumes where the last one stopped**. This proves an existing
+    branch and worktree are reused, done phases become earlier-run records, and
+    only the first unfinished phase and those after it run. A finished fix round
+    never runs again, a review is reused unless commits landed after it, and a
+    fully done branch only re-collects evidence.
+    - `scripts/issue-to-pr.sh`, `scripts/implement-verdict.sh`,
+      `docs/harness/implement-evidence-schema.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh` (two runs per sandbox) and a
+      verdict fixture for the "earlier run" row.
+
+26. **A re-run updates the open PR instead of opening another**. This proves
+    only the evidence block changes, byte-for-byte outside it, and
+    `agent:needs-help` follows the new verdict.
+    - `scripts/issue-to-pr.sh`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. A second run with an open PR
+      → `pr edit`, no `pr create`, and text before and after the markers is
+      identical; green removes the label and red adds it.
 
 ## In Progress
 
@@ -433,3 +459,17 @@
   prompt. The trust gate refuses an issue last edited by anyone but the owner
   (GraphQL `editor`), and a failed lookup exits 2 (239 orchestrator checks, exit
   0; verdict suite unchanged, exit 0).
+- #32 (a) planned on `feat/resumable-runs`, cut from `origin/main` after #57
+  merged. Base branch: `main`. The user's decisions: a per-run cap, the fix
+  round once per issue, the review reused unless commits landed after it,
+  earlier phases shown as earlier-run records. (b) and (c) follow as separate
+  PRs.
+- Slices 25 and 26 done together, in one commit: they share the run's new
+  branch-reuse path and its tests. A re-run reuses or re-attaches the worktree,
+  fast-forwards to `origin`, and refuses a diverged branch. It skips phases done
+  earlier (earlier-run records), never repeats a fix round, and reuses a review
+  unless commits came after it. With an open PR it edits only the evidence block
+  (jq `split`, not `index`, because bodies carry emoji) and moves
+  `agent:needs-help` with the verdict (261 orchestrator, 45 verdict checks; both
+  exit 0). The old check "a second run refuses the existing branch" now expects
+  the resume.
