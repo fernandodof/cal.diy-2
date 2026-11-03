@@ -1376,3 +1376,63 @@ and exits 3.
 
 - (c) worktree cleanup and the run lock.
 - Editing or deleting an older ambiguity comment.
+
+---
+
+# Increment: worktree cleanup and a run lock (#32, part c)
+
+Tracks [#32](https://github.com/fernandodof/cal.diy-2/issues/32). Part (c) of
+three, folded in from #47.
+
+## Overview
+
+Two runs on the same issue no longer share a branch, a worktree and a run
+directory. The second one exits 2. Each run also removes the worktrees of
+issues whose PR was merged or closed, because each worktree holds several GB of
+`node_modules`. The cost cap's one-turn overshoot is documented where the cap
+is set; the CLI checks `--max-budget-usd` only between turns, so the harness
+can't close that gap.
+
+## Technical Design
+
+### The run lock
+
+- **The lock** is `mkdir $OUT_DIR/issue-N.lock`. `mkdir` is atomic, and macOS has
+  no `flock`. It holds the run's pid, and a `trap … EXIT` removes it.
+- **It is taken first**, before the earlier run directory is moved aside, so a
+  run turned away by the lock leaves the other run's files alone.
+- **A lock whose pid isn't alive** (`kill -0`) belongs to a run that died. It is
+  taken over, and the run says so.
+- **A lock with no pid** may be a run between its `mkdir` and writing the pid.
+  It is treated as held, and the message says to remove it if no run is going.
+
+### The worktree sweep
+
+The sweep runs after the trust and ambiguity gates, so a refused run still
+touches nothing, and before this run's worktree is set up. It checks every
+worktree on an `agent/issue-<n>` branch under `$WORKTREE_DIR`, apart from this
+run's own:
+
+| Kept | Why |
+|---|---|
+| a PR that is open | work continues there |
+| another run holds that issue's lock | it is in use |
+| no PR, or its state can't be read | nothing says it's finished |
+| uncommitted changes | `git worktree remove` without `--force` refuses; the run says it kept it |
+
+Every other worktree whose PR is merged or closed is removed. Its branch is
+kept: a re-run re-attaches it (part a), and deleting branches is the owner's
+call.
+
+### Files
+
+| File | Change |
+|---|---|
+| `scripts/issue-to-pr.sh` | the lock, the sweep, the cost-cap comment |
+| `scripts/issue-to-pr.test.sh` | tests; the fake `gh` takes `FAKE_PR_STATES` |
+
+## Out of Scope
+
+- Deleting branches, local or on `origin`.
+- Sharing `node_modules` between worktrees to save the install (about 47 s).
+  The worktree comment says why each one needs its own.

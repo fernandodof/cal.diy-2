@@ -72,8 +72,14 @@ case "$1 $2" in
   "label list") { printf '%s\n' ${FAKE_EXISTING_LABELS:-}; cat "$FAKE_LOG/labels" 2>/dev/null || true; } ;;
   "label create") echo "$3" >> "$FAKE_LOG/labels" ;;
   # FAKE_OPEN_PR_BODY: an open PR #99 on the branch, with that body.
+  # FAKE_PR_STATES: "<branch>:<state> ...", what the cleanup's state query prints.
   "pr list")
-    if [[ -n "${FAKE_OPEN_PR_BODY:-}" ]]; then
+    if [[ "$*" == *"--json state"* ]]; then
+      head="$(sed -n 's/.*--head \([^ ]*\).*/\1/p' <<<"$*")"
+      for pair in ${FAKE_PR_STATES:-}; do
+        [[ "${pair%%:*}" == "$head" ]] && echo "${pair#*:}"
+      done
+    elif [[ -n "${FAKE_OPEN_PR_BODY:-}" ]]; then
       jq -n --arg body "$FAKE_OPEN_PR_BODY" \
         '[{number: 99, url: "https://example.test/pull/99", body: $body, labels: [{name: "agent:needs-help"}]}]'
     else
@@ -899,6 +905,51 @@ run "$SB" >/dev/null
 git -C "$SB/worktrees/issue-7" -c user.email=h@b -c user.name=human commit --quiet --amend -m "rewritten"
 check "a branch that diverged from origin is refused" "2" "$(run "$SB")"
 check "  and says so" "1" "$(grep -c 'diverged' "$SB/log/stderr")"
+rm -rf "$SB"
+
+# --- worktree cleanup and the run lock --------------------------------------
+# Worktrees of other issues: merged (3), closed (4), open (5), merged with
+# uncommitted changes (6), merged but locked by a run (8), no PR (9), and one
+# merged but outside the harness's worktree directory (10).
+SB="$(sandbox)"
+echo "node_modules/" >> "$SB/repo/.git/info/exclude"
+for n in 3 4 5 6 8 9; do
+  git -C "$SB/repo" worktree add --quiet -b "agent/issue-$n" "$SB/worktrees/issue-$n" main
+done
+git -C "$SB/repo" worktree add --quiet -b agent/issue-10 "$SB/elsewhere/issue-10" main
+mkdir -p "$SB/worktrees/issue-3/node_modules" && touch "$SB/worktrees/issue-3/node_modules/big"
+touch "$SB/worktrees/issue-6/notes.txt"
+mkdir -p "$SB/runs/issue-8.lock"
+check "a run beside finished worktrees succeeds" "0" \
+  "$(run "$SB" FAKE_PR_STATES="agent/issue-3:merged agent/issue-4:closed agent/issue-5:open agent/issue-6:merged agent/issue-8:merged agent/issue-10:merged")"
+check "  a merged PR's worktree is removed, ignored files and all" "no" "$([[ -d "$SB/worktrees/issue-3" ]] && echo yes || echo no)"
+check "  a closed PR's worktree is removed" "no" "$([[ -d "$SB/worktrees/issue-4" ]] && echo yes || echo no)"
+check "  their branches stay" "yes yes" \
+  "$(for n in 3 4; do git -C "$SB/repo" rev-parse --verify --quiet "refs/heads/agent/issue-$n" >/dev/null && echo yes || echo no; done | paste -sd' ' -)"
+check "  open, dirty, locked and PR-less worktrees stay" "5 6 8 9" \
+  "$(for n in 5 6 8 9; do [[ -d "$SB/worktrees/issue-$n" ]] && echo "$n"; done | paste -sd' ' -)"
+check "  a worktree outside the harness's directory stays" "yes" "$([[ -d "$SB/elsewhere/issue-10" ]] && echo yes || echo no)"
+check "  the dirty one is named" "1" "$(grep -c "kept .*/worktrees/issue-6: its PR is merged, but it has uncommitted changes" "$SB/log/stderr")"
+check "  this run's own worktree is used, not swept" "yes" "$([[ -d "$SB/worktrees/issue-7" ]] && echo yes || echo no)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" >/dev/null
+check "a finished run leaves no lock" "no" "$([[ -e "$SB/runs/issue-7.lock" ]] && echo yes || echo no)"
+mkdir "$SB/runs/issue-7.lock" && echo $$ > "$SB/runs/issue-7.lock/pid"
+rm -f "$SB/log/claude.calls"
+check "a run while another holds the issue's lock is an environment error" "2" "$(run "$SB")"
+check "  it names the holder" "1" "$(grep -c "another run on #7 holds .* (pid $$)" "$SB/log/stderr")"
+check "  it starts no agent" "no" "$([[ -f "$SB/log/claude.calls" ]] && echo yes || echo no)"
+check "  it leaves the earlier run's directory where it was" "0" "$(ls "$SB/runs" | grep -c '^issue-7-' || true)"
+check "  and the other run's lock" "$$" "$(cat "$SB/runs/issue-7.lock/pid")"
+: > "$SB/runs/issue-7.lock/pid"
+check "a lock with no pid yet is held too" "2" "$(run "$SB")"
+sleep 0 & dead=$!; wait "$dead"
+echo "$dead" > "$SB/runs/issue-7.lock/pid"
+check "a lock whose run died is taken over" "0" "$(run "$SB")"
+check "  and says so" "1" "$(grep -c "taking over the lock of a run that died (pid $dead)" "$SB/log/stderr")"
+check "  and is released" "no" "$([[ -e "$SB/runs/issue-7.lock" ]] && echo yes || echo no)"
 rm -rf "$SB"
 
 # --- headless-task.sh on its own --------------------------------------------

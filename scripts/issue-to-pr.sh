@@ -8,7 +8,8 @@
 # in the PR's evidence comes from the agent's own report.
 #
 # Before any branch exists it refuses an issue the repo owner did not write
-# (unless --trust) and one the ambiguity judge cannot work from.
+# (unless --trust) and one the ambiguity judge cannot work from. Once past them,
+# it removes the worktrees of issues whose PR was merged or closed.
 #
 # Usage:
 #   ./scripts/issue-to-pr.sh 42
@@ -18,8 +19,8 @@
 # `base:<branch>` label or a `Base: <branch>` line in its body.
 #
 # Exit codes: 0 = draft PR opened, evidence green; 1 = red (PR opened if there was
-# anything to push); 2 = bad usage/environment; 3 = refused (untrusted author or
-# ambiguous issue), nothing created.
+# anything to push); 2 = bad usage/environment, or another run on the issue is
+# going; 3 = refused (untrusted author or ambiguous issue), nothing created.
 
 set -euo pipefail
 
@@ -55,7 +56,8 @@ done
 
 # Per-phase turn caps and one cost cap for the whole run. Every session is
 # started with what is left of the cost cap, so the cap holds inside a session
-# and not only between them.
+# and not only between them — to within one turn: the CLI checks its budget
+# between turns, so a run can end up to a turn's cost over the cap.
 MAX_COST_USD="${HEADLESS_TASK_MAX_COST_USD:-5}"
 MAX_TURNS_RESEARCH="${HEADLESS_TASK_MAX_TURNS_RESEARCH:-30}"
 MAX_TURNS_PLAN="${HEADLESS_TASK_MAX_TURNS_PLAN:-15}"
@@ -72,6 +74,23 @@ RUN_ID="issue-$ISSUE"
 RUN_DIR="$OUT_DIR/$RUN_ID"
 BRANCH="agent/issue-$ISSUE"
 WORKTREE="$WORKTREE_DIR/$RUN_ID"
+
+# One run per issue at a time: two would share its branch, worktree and run
+# directory. mkdir is atomic, so only one run creates the lock. A lock whose run
+# has died is taken over; one with no pid yet may be a run that is just starting.
+LOCK="$OUT_DIR/$RUN_ID.lock"
+mkdir -p "$OUT_DIR"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  LOCK_PID="$(cat "$LOCK/pid" 2>/dev/null || true)"
+  if [[ -z "$LOCK_PID" ]] || kill -0 "$LOCK_PID" 2>/dev/null; then
+    echo "issue-to-pr: another run on #$ISSUE holds $LOCK (pid ${LOCK_PID:-unknown}); remove it if no run is going" >&2
+    exit 2
+  fi
+  echo "issue-to-pr: taking over the lock of a run that died (pid $LOCK_PID)" >&2
+fi
+echo $$ > "$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT
+
 # A run directory holds one run: older files beside the new ones read as this
 # run's. An earlier run's is kept beside it, since this one may yet be refused.
 [[ -d "$RUN_DIR" ]] && mv "$RUN_DIR" "$RUN_DIR-$(date -u +%Y%m%dT%H%M%SZ)"
@@ -201,6 +220,29 @@ fi
 if jq -e '.labels // [] | any(.name == "agent:needs-clarification")' "$RUN_DIR/issue.json" >/dev/null; then
   gh issue edit "$ISSUE" --remove-label agent:needs-clarification >/dev/null
 fi
+
+# --- cleanup ----------------------------------------------------------------
+# Each worktree holds several GB of node_modules. One whose PR was merged or
+# closed has nothing left to do, so it goes; its branch stays, and a re-run
+# re-attaches it. Kept: a worktree another run holds the lock on, one whose PR
+# state can't be read, and one with uncommitted changes, which git refuses to remove.
+# git lists worktrees by their physical path, symlinks resolved (/var is
+# /private/var on macOS).
+WORKTREE_DIR_PHYSICAL="$(cd "$WORKTREE_DIR" 2>/dev/null && pwd -P || true)"
+[[ -n "$WORKTREE_DIR_PHYSICAL" ]] && git -C "$REPO_ROOT" worktree list --porcelain \
+  | awk '/^worktree /{path = substr($0, 10)} /^branch refs\/heads\/agent\/issue-[0-9]+$/{print path "\t" substr($0, 19)}' \
+  | while IFS=$'\t' read -r old_worktree old_branch; do
+      [[ "$old_branch" != "$BRANCH" && "$old_worktree" == "$WORKTREE_DIR_PHYSICAL/"* ]] || continue
+      [[ -d "$OUT_DIR/issue-${old_branch#agent/issue-}.lock" ]] && continue
+      state="$(gh pr list --head "$old_branch" --state all --json state \
+        --jq 'if any(.state == "OPEN") then "open" else (.[0].state // "" | ascii_downcase) end' 2>/dev/null || true)"
+      [[ "$state" == merged || "$state" == closed ]] || continue
+      if git -C "$REPO_ROOT" worktree remove "$old_worktree" 2>/dev/null; then
+        echo "issue-to-pr: removed $old_worktree, whose PR is $state" >&2
+      else
+        echo "issue-to-pr: kept $old_worktree: its PR is $state, but it has uncommitted changes" >&2
+      fi
+    done
 
 # --- worktree ---------------------------------------------------------------
 git -C "$REPO_ROOT" fetch --quiet origin "$BASE_REF"
