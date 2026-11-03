@@ -1,14 +1,8 @@
 # Blacklisted Guest Emails Parsing Implementation
 
-## Status: planned
+## Status: in-progress
 
 ## Completed
-
-## In Progress
-
-## Blocked
-
-## Next Steps
 
 1. **A booker on a comma-and-space blocklist is rejected** — proves helper → `checkIfBookerEmailIsBlocked` → `handleNewBooking` path end to end
    - New `packages/lib/getBlacklistedGuestEmails.ts` (as in design.md › API Changes)
@@ -16,6 +10,13 @@
    - `packages/features/bookings/lib/handleNewBooking/checkIfBookerEmailIsBlocked.ts` (lines 20–26) — replace the inline split with the helper
    - `packages/features/bookings/lib/handleNewBooking/test/booking-validations.test.ts` — add "prevents booking when blacklisted email follows a comma and a space" inside `describe("Email Blacklist Validation")`, mirroring the test at line 150
    - Verified by: `yarn test packages/lib/getBlacklistedGuestEmails.test.ts`, `yarn test packages/features/bookings/lib/handleNewBooking/test/booking-validations.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
+
 2. **Blocklisted guests are dropped from a new booking with the forgiving parse** — proves the guest-filter path in the booking service uses the helper
    - `packages/features/bookings/lib/service/RegularBookingService.ts` (lines 1219–1221, used at 1238) — replace the inline split; keep the `.some(...)` check
    - Verified by: `yarn test packages/features/bookings/lib/handleNewBooking/test/booking-validations.test.ts` (existing suite stays green), plus `yarn tsc --noEmit -p packages/features/tsconfig.json` (errors in changed files only — the project is not clean on `main`)
@@ -39,3 +40,4 @@ yarn test packages/features/bookings/lib/handleNewBooking/test/booking-validatio
 
 - Base branch: `main` (from `--base main`; the harness created and checked out `agent/issue-61`).
 - Slices 3 and 4 have no existing test file to extend; design.md declares no new tests for them, so they rely on the helper's unit tests plus type-check. Adding handler tests would be scope beyond design.md.
+- Slice 1 done: helper + unit tests, `checkIfBookerEmailIsBlocked` uses it. New booking test failed first (booking was accepted), passes now; 20/20 across both files. `biome check --write` also sorted the existing imports in `booking-validations.test.ts` and added `import process from "node:process"` (the pattern the call sites already use). Next: slice 2, `RegularBookingService`.
