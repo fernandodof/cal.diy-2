@@ -11,8 +11,9 @@ export const truncateOnWord = (text: string, maxLength: number, ellipsis = true)
   let truncatedText = text.substring(0, ellipsis ? maxLength - 3 : maxLength);
 
   // Then split on the last space, this way we split on the last word,
-  // which looks just a bit nicer.
-  truncatedText = truncatedText.substring(0, Math.min(truncatedText.length, truncatedText.lastIndexOf(" ")));
+  // which looks just a bit nicer. Without a space, keep the hard cut.
+  const lastSpaceIndex = truncatedText.lastIndexOf(" ");
+  if (lastSpaceIndex > 0) truncatedText = truncatedText.substring(0, lastSpaceIndex);
 
   if (ellipsis) truncatedText += "...";
 

@@ -1,6 +1,6 @@
 # truncateOnWord respects maxLength Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -18,13 +18,6 @@
      - should return the text cut on the last space without ellipsis when ellipsis is false
      - should cut a long text to at most 158 characters on a word boundary
    - Verified by: `yarn test packages/lib/text.test.ts`
-
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 2. **Hard cut when the cut part has no space** — proves the `"..."`-only
    result is gone, falling back to a `truncate`-style cut
    - `packages/lib/text.ts` — only back off to the last space when
@@ -33,6 +26,12 @@
      "should hard cut the text when the cut part has no space"
      (`"x".repeat(200)`, `20` → 17 `x` + `"..."`)
    - Verified by: `yarn test packages/lib/text.test.ts`
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 Size: 1 non-test file, well under the 5-7 file / 500 line rule in
 `specs/README.md` — one PR.
@@ -53,3 +52,6 @@ yarn test packages/lib/text.test.ts
   without ellipsis) instead of 148; the four slice 1 tests pass. The long-text
   test asserts the exact result, so it fails under the old 148 cut. Next:
   slice 2, the hard cut when there is no space.
+- Slice 2 done: the cut only backs off to the last space when
+  `lastIndexOf(" ") > 0`, so text with no space is hard cut like `truncate`;
+  all 8 tests in `packages/lib/text.test.ts` pass. Next: none, the PR.

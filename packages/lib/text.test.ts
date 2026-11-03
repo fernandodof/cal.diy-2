@@ -148,5 +148,22 @@ describe("Text util tests", () => {
       expect(input.startsWith(cutText)).toBe(true);
       expect(input[cutText.length]).toEqual(" ");
     });
+
+    it("should hard cut the text when the cut part has no space", () => {
+      const cases = [
+        {
+          input: "x".repeat(200),
+          maxLength: 20,
+          expected: `${"x".repeat(17)}...`,
+        },
+      ];
+
+      for (const { input, maxLength, expected } of cases) {
+        const result = truncateOnWord(input, maxLength);
+
+        expect(result).toEqual(expected);
+        expect(result.length).toBeLessThanOrEqual(maxLength);
+      }
+    });
   });
 });
