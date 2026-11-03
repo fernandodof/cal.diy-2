@@ -174,14 +174,24 @@ if [[ ! "$SCORE" =~ ^[0-3]$ ]]; then
 fi
 
 if [[ "$SCORE" -le 1 ]]; then
-  gh issue comment "$ISSUE" --body "$(cat <<COMMENT
+  # One comment per version of the issue's text: a re-run on an unchanged issue
+  # would only repeat it. A failed lookup posts anyway, rather than refuse silently.
+  MARKER="<!-- issue-to-pr:ambiguity $(jq -j '.title + "\n" + (.body // "")' "$RUN_DIR/issue.json" | git hash-object --stdin) -->"
+  if gh issue view "$ISSUE" --json comments 2>/dev/null \
+    | jq -e --arg marker "$MARKER" '.comments // [] | any(.body | contains($marker))' >/dev/null 2>&1; then
+    echo "issue-to-pr: #$ISSUE already has this verdict on its current text; not commenting again" >&2
+  else
+    gh issue comment "$ISSUE" --body "$(cat <<COMMENT
 The issue-to-PR harness did not start on this issue: it scored **$SCORE / 3** for clarity, where 2 is the least it works from.
 
 > $REASONING
 
 Once the issue answers that, re-run \`./scripts/issue-to-pr.sh $ISSUE\`. The scale is in \`evals/issue-ambiguity/RUBRIC.md\`.
+
+$MARKER
 COMMENT
 )" >/dev/null
+  fi
   gh issue edit "$ISSUE" --add-label agent:needs-clarification >/dev/null
   echo "issue-to-pr: refused — #$ISSUE scored $SCORE/3 for clarity: $REASONING" >&2
   exit 3

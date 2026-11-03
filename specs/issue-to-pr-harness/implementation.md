@@ -238,23 +238,26 @@
       `yarn tsc --noEmit -p`; the allowlist has `Bash(yarn tsc --noEmit -p:*)`;
       the rules no longer say web covers `packages/lib`.
 
+23. **The evidence reads cleanly** (#45). Costs show to the cent, commands show
+    no temp paths, the run directory holds only the current run's files, and the
+    no-draft fallback names the gate file.
+    - `scripts/implement-verdict.sh`, `scripts/implement-evidence.sh`,
+      `scripts/issue-to-pr.sh`
+    - Verified by: `./scripts/implement-verdict.test.sh` (a fixture with costs
+      like `0.27312559999999997` renders as `$0.27`) and
+      `./scripts/issue-to-pr.test.sh` (no `/tmp`/`/var` paths in the body; a
+      stale file in the run directory is gone after a run; the fallback names
+      `gates/3-implement.md`).
 
-
-
-
-
-
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-## In Progress
-
-## Blocked
-
-## Next Steps
+24. **The agent reads only the issue the trust gate approved**. This proves
+    `gh` is denied to every session, Phase 4 gets the issue text in its prompt,
+    and an issue last edited by someone other than the owner is refused.
+    - `scripts/issue-to-pr.sh`, `.claude/skills/implement-task/headless.md`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. New checks: the allowlist has
+      no `gh` and the deny list has `Bash(gh:*)`; Phase 4's prompt carries the
+      title and body; `headless.md` doesn't tell any phase to run `gh issue view`;
+      `FAKE_ISSUE_EDITOR=a-stranger` → exit 3, no branch, and `--trust` lets it
+      through; a failing editor query → exit 2.
 
 25. **A re-run resumes where the last one stopped**. This proves an existing
     branch and worktree are reused, done phases become earlier-run records, and
@@ -274,38 +277,21 @@
       → `pr edit`, no `pr create`, and text before and after the markers is
       identical; green removes the label and red adds it.
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
-24. **The agent reads only the issue the trust gate approved**. This proves
-    `gh` is denied to every session, Phase 4 gets the issue text in its prompt,
-    and an issue last edited by someone other than the owner is refused.
-    - `scripts/issue-to-pr.sh`, `.claude/skills/implement-task/headless.md`
-    - Verified by: `./scripts/issue-to-pr.test.sh`. New checks: the allowlist has
-      no `gh` and the deny list has `Bash(gh:*)`; Phase 4's prompt carries the
-      title and body; `headless.md` doesn't tell any phase to run `gh issue view`;
-      `FAKE_ISSUE_EDITOR=a-stranger` → exit 3, no branch, and `--trust` lets it
-      through; a failing editor query → exit 2.
+27. **A refused issue is commented on once per version of its text**. This
+    proves the ambiguity comment carries a marker with a hash of the issue's
+    title and body, a re-run on the same text posts nothing new but still labels
+    and refuses, and an edited issue is commented on again.
+    - `scripts/issue-to-pr.sh`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. A refused run's comment
+      carries the marker; a second run whose issue already has that comment →
+      exit 3, the label, no `issue comment`; the same comment on a changed body
+      → a new comment; a failed comments lookup → the comment is posted.
 
 ## In Progress
 
 ## Blocked
 
 ## Next Steps
-
-23. **The evidence reads cleanly** (#45). Costs show to the cent, commands show
-    no temp paths, the run directory holds only the current run's files, and the
-    no-draft fallback names the gate file.
-    - `scripts/implement-verdict.sh`, `scripts/implement-evidence.sh`,
-      `scripts/issue-to-pr.sh`
-    - Verified by: `./scripts/implement-verdict.test.sh` (a fixture with costs
-      like `0.27312559999999997` renders as `$0.27`) and
-      `./scripts/issue-to-pr.test.sh` (no `/tmp`/`/var` paths in the body; a
-      stale file in the run directory is gone after a run; the fallback names
-      `gates/3-implement.md`).
 
 ## Session Notes
 
@@ -473,3 +459,12 @@
   `agent:needs-help` with the verdict (261 orchestrator, 45 verdict checks; both
   exit 0). The old check "a second run refuses the existing branch" now expects
   the resume.
+- #32 (b) planned on `fix/ambiguity-comment-once`, cut from `origin/main` after
+  #58 merged. Base branch: `main`. One slice. Slices 23–26 moved under
+  `## Completed`, out of the empty section blocks earlier increments had left.
+- Slice 27 done: the ambiguity comment ends in
+  `<!-- issue-to-pr:ambiguity <hash> -->`, the `git hash-object` of the title and
+  body. A refusal whose marker is already among the issue's comments posts
+  nothing, but still labels and exits 3. An edited issue, or a failed comments
+  lookup, gets a new comment (270 orchestrator checks, exit 0; verdict suite
+  unchanged). Next: #32 (c), worktree cleanup and the run lock.

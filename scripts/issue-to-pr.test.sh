@@ -55,12 +55,15 @@ sandbox() {
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE_LOG/gh.log"
 case "$1 $2" in
+  # FAKE_ISSUE_COMMENTS: one comment with that body; FAKE_GH_COMMENTS_FAIL fails the lookup.
   "issue view")
+    [[ "$*" == *comments* && -n "${FAKE_GH_COMMENTS_FAIL:-}" ]] && exit 1
     jq -n --arg author "${FAKE_ISSUE_AUTHOR:-fernandodof}" --arg labels "${FAKE_ISSUE_LABELS:-}" \
-      --arg body "${FAKE_ISSUE_BODY:-Add a test.}" \
+      --arg body "${FAKE_ISSUE_BODY:-Add a test.}" --arg comment "${FAKE_ISSUE_COMMENTS:-}" \
       '{number: 7, title: "test(lib): cover a thing", body: $body,
         url: "https://example.test/issues/7", author: {login: $author},
-        labels: ($labels | split(" ") | map(select(. != "") | {name: .}))}' ;;
+        labels: ($labels | split(" ") | map(select(. != "") | {name: .})),
+        comments: (if $comment == "" then [] else [{author: {login: "fernandodof"}, body: $comment}] end)}' ;;
   "repo view") [[ "$*" == *nameWithOwner* ]] && echo "fernandodof/cal.diy-2" || echo "fernandodof" ;;
   # The issue's last editor; FAKE_ISSUE_EDITOR empty means never edited.
   "api graphql") [[ -n "${FAKE_GH_GRAPHQL_FAIL:-}" ]] && exit 1; echo "${FAKE_ISSUE_EDITOR:-}" ;;
@@ -569,6 +572,33 @@ for score in 1 0; do
     "$([[ -d "$SB/worktrees/issue-7" ]] && echo yes || echo no) $(git -C "$SB/repo" rev-parse --verify --quiet refs/heads/agent/issue-7 >/dev/null && echo yes || echo no) $([[ -f "$SB/log/claude.calls" ]] && echo yes || echo no)"
   rm -rf "$SB"
 done
+
+# The comment's marker names the text it judged; the same text is not commented on twice.
+SB="$(sandbox)"
+run "$SB" FAKE_SCORE=1 >/dev/null
+MARKER="$(grep -o '<!-- issue-to-pr:ambiguity [0-9a-f]* -->' "$SB/log/gh.log")"
+check "a refusal's comment carries a marker" "1" "$(grep -c . <<<"$MARKER")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a refusal on text already commented on is still refused" "3" \
+  "$(run "$SB" FAKE_SCORE=1 FAKE_ISSUE_COMMENTS="earlier verdict
+$MARKER")"
+check "  it posts no second comment" "0" "$(grep -c '^issue comment' "$SB/log/gh.log" || true)"
+check "  it still labels the issue" "1" "$(grep -c '^issue edit 7 --add-label agent:needs-clarification$' "$SB/log/gh.log")"
+check "  and says why it stayed quiet" "1" "$(grep -c 'not commenting again' "$SB/log/stderr")"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+run "$SB" FAKE_SCORE=1 FAKE_ISSUE_BODY="Add a test, now with detail." FAKE_ISSUE_COMMENTS="$MARKER" >/dev/null
+check "an edited issue is commented on again" "1" "$(grep -c '^issue comment 7 ' "$SB/log/gh.log")"
+check "  under a new marker" "0" "$(grep -cF "$MARKER" "$SB/log/gh.log" || true)"
+rm -rf "$SB"
+
+SB="$(sandbox)"
+check "a failed comments lookup still refuses" "3" "$(run "$SB" FAKE_SCORE=1 FAKE_GH_COMMENTS_FAIL=1)"
+check "  and posts the comment" "1" "$(grep -c '^issue comment 7 ' "$SB/log/gh.log")"
+rm -rf "$SB"
 
 SB="$(sandbox)"
 check "a score of 2 proceeds" "0" "$(run "$SB" FAKE_SCORE=2)"
