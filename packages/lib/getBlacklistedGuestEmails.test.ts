@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-
+import process from "node:process";
+import { describe, expect, it } from "vitest";
 import { getBlacklistedGuestEmails, getBlacklistedGuestEmailsAsWritten } from "./getBlacklistedGuestEmails";
 
 describe("getBlacklistedGuestEmails", () => {
