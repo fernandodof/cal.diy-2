@@ -1,6 +1,6 @@
 # Blacklisted Guest Emails Parsing Implementation
 
-## Status: in-progress
+## Status: complete
 
 ## Completed
 
@@ -45,3 +45,4 @@ yarn test packages/features/bookings/lib/handleNewBooking/test/booking-validatio
 - Slice 2 done: `RegularBookingService` uses the helper. booking-validations 15/15; `tsc -p packages/features` reports no errors in the changed files (the project's other errors are pre-existing). Next: slice 3, `addGuests.handler.ts`.
 - Slice 3 done: local `getBlacklistedEmails()` removed, handler calls the helper; the now-unused `import process from "node:process"` removed too. `tsc -p packages/trpc` reports 0 errors (`--listFiles` confirms the changed files are included). Next: slice 4, `checkIfUserEmailVerificationRequired.handler.ts`.
 - Slice 4 done: handler uses the helper; since entries are now lowercase, the `find` compares against `baseEmail.toLowerCase()` and the owner exemption compares against `userSessionEmail?.toLowerCase()`. `tsc -p packages/trpc` 0 errors. Next: final checks, then the PR body.
+- Final checks: getBlacklistedGuestEmails.test.ts 5/5, booking-validations.test.ts 15/15, `yarn turbo run type-check --filter=@calcom/web` passed (3/3 tasks, `@calcom/web:type-check` executed). PR body written to `.agent-handoff/pr-body.md` for the harness.
