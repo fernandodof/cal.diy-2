@@ -55,3 +55,11 @@ yarn test packages/lib/text.test.ts
 - Slice 2 done: the cut only backs off to the last space when
   `lastIndexOf(" ") > 0`, so text with no space is hard cut like `truncate`;
   all 8 tests in `packages/lib/text.test.ts` pass. Next: none, the PR.
+- Fix round (review spec findings, see `gates/fix.md`): the cut is kept when
+  the next character is a space, so a complete last word is no longer dropped;
+  with `maxLength < 3` the ellipsis is dropped and the text hard cut; added the
+  `ellipsis = false` no-space case and the "should hard cut the text without
+  ellipsis when the max length is too short for it" test; the long-text test
+  now expects an explicit 157-character result instead of
+  `input.slice(0, 148)`. All 9 tests in `packages/lib/text.test.ts` pass. The
+  Verification block is unchanged (same test file).

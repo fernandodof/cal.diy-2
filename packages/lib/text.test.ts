@@ -103,6 +103,11 @@ describe("Text util tests", () => {
           maxLength: 10,
           expected: "Hello...",
         },
+        {
+          input: "The quick brown fox jumps",
+          maxLength: 22,
+          expected: "The quick brown fox...",
+        },
       ];
 
       for (const { input, maxLength, expected } of cases) {
@@ -127,6 +132,12 @@ describe("Text util tests", () => {
           ellipsis: false,
           expected: "Hello",
         },
+        {
+          input: "The quick brown fox jumps",
+          maxLength: 19,
+          ellipsis: false,
+          expected: "The quick brown fox",
+        },
       ];
 
       for (const { input, maxLength, ellipsis, expected } of cases) {
@@ -138,12 +149,14 @@ describe("Text util tests", () => {
     });
 
     it("should cut a long text to at most 158 characters on a word boundary", () => {
-      const input = "Lorem ipsum dolor sit amet consectetur adipiscing elit ".repeat(5);
+      const sentence = "Lorem ipsum dolor sit amet consectetur adipiscing elit ";
+      const input = `Hello ${sentence.repeat(5)}`;
 
       const result = truncateOnWord(input, 158);
       const cutText = result.slice(0, -3);
 
-      expect(result).toEqual(`${input.slice(0, 148)}...`);
+      expect(result).toEqual(`Hello ${sentence.repeat(2)}Lorem ipsum dolor sit amet consectetur...`);
+      expect(result.length).toEqual(157);
       expect(result.length).toBeLessThanOrEqual(158);
       expect(input.startsWith(cutText)).toBe(true);
       expect(input[cutText.length]).toEqual(" ");
@@ -155,6 +168,34 @@ describe("Text util tests", () => {
           input: "x".repeat(200),
           maxLength: 20,
           expected: `${"x".repeat(17)}...`,
+        },
+        {
+          input: "x".repeat(200),
+          maxLength: 20,
+          ellipsis: false,
+          expected: "x".repeat(20),
+        },
+      ];
+
+      for (const { input, maxLength, ellipsis, expected } of cases) {
+        const result = truncateOnWord(input, maxLength, ellipsis);
+
+        expect(result).toEqual(expected);
+        expect(result.length).toBeLessThanOrEqual(maxLength);
+      }
+    });
+
+    it("should hard cut the text without ellipsis when the max length is too short for it", () => {
+      const cases = [
+        {
+          input: "Hello world",
+          maxLength: 2,
+          expected: "He",
+        },
+        {
+          input: "Hello world",
+          maxLength: 0,
+          expected: "",
         },
       ];
 
