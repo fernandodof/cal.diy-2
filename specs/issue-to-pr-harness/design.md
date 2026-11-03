@@ -1330,3 +1330,49 @@ Three non-test files.
 - (b) a duplicate ambiguity comment; (c) worktree cleanup and a lock.
 - The cost cap overshooting by one turn: the CLI checks it only between turns.
   This is documented, not fixed.
+
+---
+
+# Increment: one ambiguity comment per version of the issue (#32, part b)
+
+Tracks [#32](https://github.com/fernandodof/cal.diy-2/issues/32). Part (b) of
+three.
+
+## Overview
+
+The ambiguity gate posts its refusal comment on every run. Re-running the
+harness on an issue nobody has changed adds the same comment again. Now the
+comment carries a hidden marker naming the text it judged, and a run that finds
+its own marker for the same text doesn't post again. It still labels the issue
+and exits 3.
+
+## Technical Design
+
+- **The marker** is the comment's last line,
+  `<!-- issue-to-pr:ambiguity <hash> -->`. The hash is `git hash-object --stdin`
+  of the title, a newline and the body. `git` is already required, and this
+  avoids `shasum` on macOS and `sha256sum` on Linux.
+- **Before posting**, the harness reads the issue's comments
+  (`gh issue view --json comments`). It posts only if no comment's body contains
+  the marker.
+- **An edited title or body** changes the hash, so the next refusal comments
+  again. That's the case where the author has answered, and the new reasoning
+  is worth reading.
+- **A failed comments lookup** posts the comment: a duplicate is better than
+  refusing in silence.
+- **Anyone can post the marker.** Copying it only stops a duplicate comment.
+  The run still refuses and labels, so the comment's author isn't checked.
+- **The comments aren't stored in `issue.json`.** Only the gate reads them, and
+  nothing that reaches the agent changes (#48).
+
+### Files
+
+| File | Change |
+|---|---|
+| `scripts/issue-to-pr.sh` | the marker, and the check before posting |
+| `scripts/issue-to-pr.test.sh` | tests; the fake `gh` takes `FAKE_ISSUE_COMMENTS` |
+
+## Out of Scope
+
+- (c) worktree cleanup and the run lock.
+- Editing or deleting an older ambiguity comment.
