@@ -1,6 +1,6 @@
 # Issue-to-PR Harness Implementation
 
-## Status: planned
+## Status: complete
 
 ## Completed
 
@@ -277,12 +277,6 @@
       → `pr edit`, no `pr create`, and text before and after the markers is
       identical; green removes the label and red adds it.
 
-## In Progress
-
-## Blocked
-
-## Next Steps
-
 27. **A refused issue is commented on once per version of its text**. This
     proves the ambiguity comment carries a marker with a hash of the issue's
     title and body, a re-run on the same text posts nothing new but still labels
@@ -292,6 +286,12 @@
       carries the marker; a second run whose issue already has that comment →
       exit 3, the label, no `issue comment`; the same comment on a changed body
       → a new comment; a failed comments lookup → the comment is posted.
+
+## In Progress
+
+## Blocked
+
+## Next Steps
 
 ## Session Notes
 
@@ -462,3 +462,9 @@
 - #32 (b) planned on `fix/ambiguity-comment-once`, cut from `origin/main` after
   #58 merged. Base branch: `main`. One slice. Slices 23–26 moved under
   `## Completed`, out of the empty section blocks earlier increments had left.
+- Slice 27 done: the ambiguity comment ends in
+  `<!-- issue-to-pr:ambiguity <hash> -->`, the `git hash-object` of the title and
+  body. A refusal whose marker is already among the issue's comments posts
+  nothing, but still labels and exits 3. An edited issue, or a failed comments
+  lookup, gets a new comment (270 orchestrator checks, exit 0; verdict suite
+  unchanged). Next: #32 (c), worktree cleanup and the run lock.
