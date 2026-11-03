@@ -1,6 +1,6 @@
-# {Feature Name} Implementation
+# Blacklisted Guest Emails Parsing Implementation
 
-## Status: not-started
+## Status: planned
 
 ## Completed
 
@@ -10,11 +10,32 @@
 
 ## Next Steps
 
-1. {First item to implement}
+1. **A booker on a comma-and-space blocklist is rejected** — proves helper → `checkIfBookerEmailIsBlocked` → `handleNewBooking` path end to end
+   - New `packages/lib/getBlacklistedGuestEmails.ts` (as in design.md › API Changes)
+   - New `packages/lib/getBlacklistedGuestEmails.test.ts` — the five helper criteria in design.md, one `describe("getBlacklistedGuestEmails")`, env set and cleared per test
+   - `packages/features/bookings/lib/handleNewBooking/checkIfBookerEmailIsBlocked.ts` (lines 20–26) — replace the inline split with the helper
+   - `packages/features/bookings/lib/handleNewBooking/test/booking-validations.test.ts` — add "prevents booking when blacklisted email follows a comma and a space" inside `describe("Email Blacklist Validation")`, mirroring the test at line 150
+   - Verified by: `yarn test packages/lib/getBlacklistedGuestEmails.test.ts`, `yarn test packages/features/bookings/lib/handleNewBooking/test/booking-validations.test.ts`
+2. **Blocklisted guests are dropped from a new booking with the forgiving parse** — proves the guest-filter path in the booking service uses the helper
+   - `packages/features/bookings/lib/service/RegularBookingService.ts` (lines 1219–1221, used at 1238) — replace the inline split; keep the `.some(...)` check
+   - Verified by: `yarn test packages/features/bookings/lib/handleNewBooking/test/booking-validations.test.ts` (existing suite stays green), plus `yarn tsc --noEmit -p packages/features/tsconfig.json` (errors in changed files only — the project is not clean on `main`)
+3. **Adding a guest to an existing booking uses the shared parse** — proves the tRPC `addGuests` path
+   - `packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts` — delete the local `getBlacklistedEmails()` (lines 166–170) and call the helper at line 207
+   - Verified by: `yarn tsc --noEmit -p packages/trpc/tsconfig.json` (errors in changed files only); no existing `addGuests` test file (checked `packages/trpc/server/routers/viewer/bookings/`)
+4. **Email-verification check uses the shared parse and keeps the session owner exempt** — proves the public tRPC path
+   - `packages/trpc/server/routers/publicViewer/checkIfUserEmailVerificationRequired.handler.ts` (lines 23–34) — replace the inline split; compare `blacklistedEmail !== userSessionEmail?.toLowerCase()` (design.md › Edge Cases)
+   - Verified by: `yarn tsc --noEmit -p packages/trpc/tsconfig.json` (errors in changed files only); no existing test for this handler (checked `packages/trpc/server/routers/publicViewer/`)
+
+Every file in design.md's call-site and test lists is covered: 1 new source file + 4 edited call sites (5 non-test files) and 2 test files — within the `specs/README.md` limit (5–7 files, 500 lines). One PR.
 
 ## Verification
 
 ```sh
+yarn test packages/lib/getBlacklistedGuestEmails.test.ts
+yarn test packages/features/bookings/lib/handleNewBooking/test/booking-validations.test.ts
 ```
 
 ## Session Notes
+
+- Base branch: `main` (from `--base main`; the harness created and checked out `agent/issue-61`).
+- Slices 3 and 4 have no existing test file to extend; design.md declares no new tests for them, so they rely on the helper's unit tests plus type-check. Adding handler tests would be scope beyond design.md.
