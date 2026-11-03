@@ -287,6 +287,18 @@
       exit 3, the label, no `issue comment`; the same comment on a changed body
       → a new comment; a failed comments lookup → the comment is posted.
 
+28. **Runs don't collide, and finished worktrees go**. This proves a second run
+    on an issue whose lock is held exits 2 before touching anything, a dead
+    run's lock is taken over, and a run removes the worktrees of merged or
+    closed PRs while keeping open, locked, unknown and dirty ones, and every
+    branch.
+    - `scripts/issue-to-pr.sh`
+    - Verified by: `./scripts/issue-to-pr.test.sh`. A held lock → exit 2, no
+      agent, the earlier run directory unmoved; an empty-pid lock → exit 2; a
+      dead pid → taken over and released; worktrees for merged, closed, open,
+      dirty, locked, PR-less and out-of-directory branches → only merged and
+      closed are removed.
+
 ## In Progress
 
 ## Blocked
@@ -468,3 +480,13 @@
   nothing, but still labels and exits 3. An edited issue, or a failed comments
   lookup, gets a new comment (270 orchestrator checks, exit 0; verdict suite
   unchanged). Next: #32 (c), worktree cleanup and the run lock.
+- #32 (c) on `feat/worktree-cleanup-and-lock`, cut from `origin/main` after #59
+  merged. Base branch: `main`. One slice, slice 28: the run lock, the worktree
+  sweep, and the cost-cap comment.
+- Slice 28 done: the per-issue lock (`mkdir`, pid inside, taken over from a dead
+  run, released by a trap) and the sweep of merged or closed PRs' worktrees.
+  The sweep compares against the worktree directory's physical path, because
+  `git worktree list` resolves symlinks: the first test run removed nothing
+  under `/var` → `/private/var`. The cost cap's comment now says it can overshoot
+  by one turn (288 orchestrator checks, exit 0; verdict suite unchanged). #32 is
+  complete.
