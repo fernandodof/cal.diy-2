@@ -60,6 +60,7 @@ import { DEFAULT_GROUP_ID, ENABLE_ASYNC_TASKER } from "@calcom/lib/constants";
 import { ErrorCode } from "@calcom/lib/errorCodes";
 import { ErrorWithCode } from "@calcom/lib/errors";
 import { extractBaseEmail } from "@calcom/lib/extract-base-email";
+import { getBlacklistedGuestEmails } from "@calcom/lib/getBlacklistedGuestEmails";
 import { HttpError } from "@calcom/lib/http-error";
 import { criticalLogger } from "@calcom/lib/logger.server";
 import { getPiiFreeCalendarEvent, getPiiFreeEventType } from "@calcom/lib/piiFreeData";
@@ -1216,9 +1217,7 @@ async function handler(
     },
   ];
 
-  const blacklistedGuestEmails = process.env.BLACKLISTED_GUEST_EMAILS
-    ? process.env.BLACKLISTED_GUEST_EMAILS.split(",")
-    : [];
+  const blacklistedGuestEmails = getBlacklistedGuestEmails();
 
   const guestEmails = (reqGuests || []).map((email) => extractBaseEmail(email).toLowerCase());
   const guestUsers = await deps.userRepository.findManyByEmailsWithEmailVerificationSettings({
