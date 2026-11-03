@@ -33,6 +33,7 @@ can still book or be added as guests.
 - [ ] Leading and trailing whitespace is dropped (`"  a@spam.com  "` → `["a@spam.com"]`) — `packages/lib/getBlacklistedGuestEmails.test.ts` › getBlacklistedGuestEmails trims leading and trailing whitespace
 - [ ] Entries are lowercased (`"A@Spam.com"` → `["a@spam.com"]`) — `packages/lib/getBlacklistedGuestEmails.test.ts` › getBlacklistedGuestEmails lowercases entries
 - [ ] A newline works as a separator and empty entries are dropped (`"a@spam.com,\nb@spam.com,,"` → `["a@spam.com", "b@spam.com"]`) — `packages/lib/getBlacklistedGuestEmails.test.ts` › getBlacklistedGuestEmails splits on line breaks and drops empty entries
+- [ ] The as-written variant parses the same way but keeps the entry's casing (`" Foo@Spam.com,\nb@spam.com,,"` → `["Foo@Spam.com", "b@spam.com"]`), so the verification check's session exemption and log are unchanged — `packages/lib/getBlacklistedGuestEmails.test.ts` › getBlacklistedGuestEmailsAsWritten parses the same way but keeps the casing entries were written with
 - [ ] A booking by a blocklisted email is rejected when the variable has a space after the comma (`"spam@test.com, blocked@example.com"` blocks `blocked@example.com`) — `packages/features/bookings/lib/handleNewBooking/test/booking-validations.test.ts` › Booking Validation Specifications Email Blacklist Validation prevents booking when blacklisted email follows a comma and a space
 
 ## Technical Design
@@ -113,11 +114,15 @@ None.
   was written with; after the helper it is lowercase. If an operator wrote
   `Foo@x.com` and the logged-in session email is `Foo@x.com`, today that user is
   not asked to verify; with a lowercased entry and an unchanged `!==` they would
-  be. To keep the logged-in owner exempt, compare case-insensitively
-  (`blacklistedEmail !== userSessionEmail?.toLowerCase()`), matching the
-  `toLowerCase()` comparison the same handler already uses for the
-  `requiresBookerEmailVerification` branch at line 40. Assumption recorded in the
-  gate file.
+  be. *(Revised in the fix round.)* Comparing case-insensitively instead would
+  newly exempt a session email whose casing differs from the entry, and the
+  warning would log the lowercased entry — both changes to behaviour. So the
+  helper module also exports `getBlacklistedGuestEmailsAsWritten()` (same
+  split/trim/drop-empty, no lowercasing; `getBlacklistedGuestEmails()` is built
+  on it), and this handler uses it with its original
+  `guestEmail.toLowerCase() === baseEmail.toLowerCase()` match and the unchanged
+  `blacklistedEmail !== userSessionEmail` exemption and log line. Only the
+  parsing changes there.
 - **Whitespace-only or trailing separators** (`"a@spam.com,,"`, `"\n"`) → empty
   entries dropped, so an empty string never matches anything.
 - **Windows line endings** — splitting on `\r` as well as `\n` (or trimming,
